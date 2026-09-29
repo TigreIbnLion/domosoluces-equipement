@@ -298,8 +298,16 @@ void startMqtt() {
   config.client_id = mqttClientId.c_str();
   mqtt = esp_mqtt_client_init(&config);
   if (!mqtt) return;
-  esp_mqtt_client_register_event(mqtt, MQTT_EVENT_ANY, onMqttEvent, nullptr);
-  esp_mqtt_client_start(mqtt);
+  if (esp_mqtt_client_register_event(mqtt, MQTT_EVENT_ANY, onMqttEvent, nullptr) != ESP_OK) {
+    esp_mqtt_client_destroy(mqtt);
+    mqtt = nullptr;
+    return;
+  }
+  if (esp_mqtt_client_start(mqtt) != ESP_OK) {
+    esp_mqtt_client_destroy(mqtt);
+    mqtt = nullptr;
+    return;
+  }
 }
 
 void setup() {

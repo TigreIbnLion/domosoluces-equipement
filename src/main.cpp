@@ -42,8 +42,10 @@ domo::RecentCommandCache recentCommands;
 
 String rootTopic;
 unsigned long lastHeartbeat = 0;
+unsigned long lastTelemetry = 0;
 unsigned long reconnectAt = 0;
 constexpr unsigned long HEARTBEAT_MS = 30000;
+constexpr unsigned long TELEMETRY_MS = 60000;
 constexpr unsigned long RECONNECT_MS = 3000;
 
 const char* stateName(LogicalState s) { return s == LogicalState::On ? "on" : "off"; }
@@ -73,11 +75,12 @@ void publishHeartbeat() {
   publishJson(topic("heartbeat"), d);
 }
 
-void publishAck(const String& commandId, bool ok, const char* error=nullptr) {
+void publishAck(const String& commandId, bool ok, const char* error=nullptr, LogicalState ackState=LogicalState::Unknown) {
   JsonDocument d;
   d["command_id"] = commandId;
   d["status"] = ok ? "executed" : "failed";
-  if (hardware.readState() != LogicalState::Unknown) d["state"] = stateName(hardware.readState());
+  const auto state = ackState == LogicalState::Unknown ? hardware.readState() : ackState;
+  if (state != LogicalState::Unknown) d["state"] = stateName(state);
   d["error"] = error ? error : nullptr;
   d["firmware_version"] = DOMO_FIRMWARE_VERSION;
   d["uptime_ms"] = millis();
@@ -99,8 +102,10 @@ void onMessage(char* incomingTopic, byte* bytes, unsigned int length) {
   if (device != DOMO_DEVICE_UID || kit != DOMO_KIT_SERIAL) {
     publishAck(id, false, "identity_mismatch"); return;
   }
-  if (recentCommands.contains(id)) {
-    publishAck(id, true); return; // idempotent: never replay physical action
+  domo::CommandResult previous;
+  if (recentCommands.find(id, previous)) {
+    publishAck(id, true, nullptr, previous.state);
+    return; // idempotent: replay original result, never the physical action
   }
   if (action != "set_state" || (requested != "on" && requested != "off")) {
     publishAck(id, false, "invalid_command"); return;
@@ -109,12 +114,24 @@ void onMessage(char* incomingTopic, byte* bytes, unsigned int length) {
   const auto target = requested == "on" ? LogicalState::On : LogicalState::Off;
   const bool ok = hardware.setState(target);
   if (ok) {
-    recentCommands.remember(id);
+    recentCommands.remember(id, hardware.readState());
     publishState("command");
-    publishAck(id, true);
+    publishAck(id, true, nullptr, hardware.readState());
   } else {
     publishAck(id, false, "hardware_action_failed");
   }
+}
+
+void publishTelemetry() {
+  const auto t = hardware.readTelemetry();
+  if (!t.hasCurrentPower && !t.hasEnergyKwh && !t.hasVoltage && !t.hasCurrent && !t.hasPowerFactor) return;
+  JsonDocument d;
+  if (t.hasCurrentPower) d["current_power"] = t.currentPower;
+  if (t.hasEnergyKwh) d["energy_kwh"] = t.energyKwh;
+  if (t.hasVoltage) d["voltage_v"] = t.voltage;
+  if (t.hasCurrent) d["current_a"] = t.current;
+  if (t.hasPowerFactor) d["power_factor"] = t.powerFactor;
+  publishJson(topic("telemetry"), d);
 }
 
 void connectWifi() {
@@ -138,6 +155,7 @@ void setup() {
   Serial.begin(115200);
   rootTopic = String("domosoluces/kits/") + DOMO_KIT_SERIAL + "/devices/" + DOMO_DEVICE_UID;
   hardware.begin();
+  recentCommands.begin();
   mqtt.setServer(DOMO_MQTT_HOST, DOMO_MQTT_PORT);
   mqtt.setCallback(onMessage);
   mqtt.setBufferSize(768);
@@ -157,6 +175,10 @@ void loop() {
   if (mqtt.connected() && millis() - lastHeartbeat >= HEARTBEAT_MS) {
     lastHeartbeat = millis();
     publishHeartbeat();
+  }
+  if (mqtt.connected() && millis() - lastTelemetry >= TELEMETRY_MS) {
+    lastTelemetry = millis();
+    publishTelemetry();
   }
   delay(5);
 }

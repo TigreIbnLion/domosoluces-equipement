@@ -22,6 +22,7 @@ This plan validates the firmware against the normative .project/contracts/IOT_V1
 10. Wi-Fi interruption: disconnect/reconnect Wi-Fi. Expect MQTT recovery, heartbeat, state reason=reconnect and continued command processing.
 11. Telemetry unsupported: Keyestudio adapter must not publish fabricated electrical measurements.
 12. Long run: operate for at least several heartbeat periods and verify uptime_ms increases and no command is replayed spontaneously.
+13. Idempotence storage unavailable: simulate/force NVS initialization failure. Expect remote commands to fail with idempotence_storage_unavailable and no physical transition.
 
 ## Not yet executable as a normative test
 - schedule behavior: V1 names the topic but does not define its payload or execution semantics.

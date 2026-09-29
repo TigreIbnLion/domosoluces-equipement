@@ -47,6 +47,7 @@ unsigned long reconnectAt = 0;
 bool firstMqttSession = true;
 bool hardwareReady = false;
 bool commandCacheReady = false;
+bool wifiConnectStarted = false;
 constexpr unsigned long HEARTBEAT_MS = 30000;
 constexpr unsigned long TELEMETRY_MS = 60000;
 constexpr unsigned long RECONNECT_MS = 3000;
@@ -175,9 +176,12 @@ void publishTelemetry() {
 }
 
 void connectWifi() {
-  if (WiFi.status() == WL_CONNECTED || strlen(DOMO_WIFI_SSID) == 0) return;
+  if (WiFi.status() == WL_CONNECTED || wifiConnectStarted || strlen(DOMO_WIFI_SSID) == 0) return;
   WiFi.mode(WIFI_STA);
+  WiFi.setAutoReconnect(true);
+  WiFi.persistent(false);
   WiFi.begin(DOMO_WIFI_SSID, DOMO_WIFI_PASSWORD);
+  wifiConnectStarted = true;
 }
 
 void handleMqttData(esp_mqtt_event_handle_t event) {
@@ -193,6 +197,8 @@ void onMqttEvent(void*, esp_event_base_t, int32_t eventId, void* eventData) {
   auto event = static_cast<esp_mqtt_event_handle_t>(eventData);
   if (eventId == MQTT_EVENT_CONNECTED) {
     mqttConnected = true;
+    lastHeartbeat = millis();
+    lastTelemetry = millis();
     esp_mqtt_client_subscribe(mqtt, topic("command").c_str(), 1);
     esp_mqtt_client_subscribe(mqtt, topic("schedule").c_str(), 1);
     publishHeartbeat();
@@ -230,9 +236,14 @@ void setup() {
 void loop() {
   hardware.loop();
   if (WiFi.status() != WL_CONNECTED) {
-    if (millis() >= reconnectAt) { reconnectAt = millis() + RECONNECT_MS; connectWifi(); }
+    mqttConnected = false;
+    if (!wifiConnectStarted && millis() >= reconnectAt) {
+      reconnectAt = millis() + RECONNECT_MS;
+      connectWifi();
+    }
     delay(10); return;
   }
+  wifiConnectStarted = false;
   if (!mqtt && millis() >= reconnectAt) {
     reconnectAt = millis() + RECONNECT_MS;
     startMqtt();

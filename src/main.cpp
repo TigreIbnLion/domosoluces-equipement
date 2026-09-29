@@ -51,10 +51,12 @@ bool firstMqttSession = true;
 bool hardwareReady = false;
 bool commandCacheReady = false;
 unsigned long lastWifiBegin = 0;
+unsigned long mqttDisconnectedSince = 0;
 constexpr unsigned long HEARTBEAT_MS = 30000;
 constexpr unsigned long TELEMETRY_MS = 60000;
 constexpr unsigned long RECONNECT_MS = 3000;
 constexpr unsigned long WIFI_RETRY_MS = 15000;
+constexpr unsigned long MQTT_STUCK_MS = 60000;
 constexpr size_t MQTT_COMMAND_MAX_BYTES = 512;
 char mqttCommandBuffer[MQTT_COMMAND_MAX_BYTES];
 int mqttCommandExpectedBytes = 0;
@@ -271,6 +273,7 @@ void onMqttEvent(void*, esp_event_base_t, int32_t eventId, void* eventData) {
   auto event = static_cast<esp_mqtt_event_handle_t>(eventData);
   if (eventId == MQTT_EVENT_CONNECTED) {
     mqttConnected = true;
+    mqttDisconnectedSince = 0;
     lastHeartbeat = millis();
     lastTelemetry = millis();
     esp_mqtt_client_subscribe(mqtt, topic("command").c_str(), 1);
@@ -280,6 +283,9 @@ void onMqttEvent(void*, esp_event_base_t, int32_t eventId, void* eventData) {
     firstMqttSession = false;
   } else if (eventId == MQTT_EVENT_DISCONNECTED) {
     mqttConnected = false;
+    if (mqttDisconnectedSince == 0) {
+      mqttDisconnectedSince = millis() == 0 ? 1 : millis();
+    }
   } else if (eventId == MQTT_EVENT_PUBLISHED) {
     // For QoS 1, ESP-MQTT emits this after the broker PUBACK is received.
     ++qos1PublishedCount;
@@ -332,6 +338,15 @@ void loop() {
   if (!mqtt && millis() >= reconnectAt) {
     reconnectAt = millis() + RECONNECT_MS;
     startMqtt();
+  }
+  if (mqtt && !mqttConnected && mqttDisconnectedSince != 0 &&
+      millis() - mqttDisconnectedSince >= MQTT_STUCK_MS) {
+    esp_mqtt_client_stop(mqtt);
+    esp_mqtt_client_destroy(mqtt);
+    mqtt = nullptr;
+    mqttDisconnectedSince = 0;
+    resetMqttCommandAssembly();
+    reconnectAt = millis() + RECONNECT_MS;
   }
   if (mqttConnected && millis() - lastHeartbeat >= HEARTBEAT_MS) {
     lastHeartbeat = millis();

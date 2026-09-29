@@ -28,16 +28,23 @@ class RecentCommandCache {
     return false;
   }
 
-  void remember(const String& id, bool executed, LogicalState state, const String& error = "") {
-    if (id.isEmpty()) return;
+  bool remember(const String& id, bool executed, LogicalState state, const String& error = "") {
+    if (id.isEmpty()) return false;
     CommandResult existing;
-    if (find(id, existing)) return;
-    items_[cursor_].id = id;
-    items_[cursor_].executed = executed;
-    items_[cursor_].state = state;
-    items_[cursor_].error = error;
+    if (find(id, existing)) return true;
+
+    const size_t slot = cursor_;
+    CommandResult candidate;
+    candidate.id = id;
+    candidate.executed = executed;
+    candidate.state = state;
+    candidate.error = error;
+
+    if (!save(slot, candidate)) return false;
+
+    items_[slot] = candidate;
     cursor_ = (cursor_ + 1) % Capacity;
-    saveLast();
+    return prefs_.putUChar("cursor", static_cast<uint8_t>(cursor_)) == sizeof(uint8_t);
   }
 
  private:
@@ -87,13 +94,13 @@ class RecentCommandCache {
     }
   }
 
-  void saveLast() {
-    prefs_.putUChar("cursor", static_cast<uint8_t>(cursor_));
-    const size_t i = (cursor_ + Capacity - 1) % Capacity;
-    const String key = String("c") + i;
-    const String raw = items_[i].id + "|" + (items_[i].executed ? "1" : "0") +
-                       "|" + stateName(items_[i].state) + "|" + items_[i].error;
-    prefs_.putString(key.c_str(), raw);
+  bool save(size_t slot, const CommandResult& item) {
+    const String key = String("c") + slot;
+    const String raw = item.id + "|" + (item.executed ? "1" : "0") +
+                       "|" + stateName(item.state) + "|" + item.error;
+    const size_t written = prefs_.putString(key.c_str(), raw);
+    if (written != raw.length()) return false;
+    return prefs_.getString(key.c_str(), "") == raw;
   }
 };
 } // namespace domo

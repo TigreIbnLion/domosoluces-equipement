@@ -47,10 +47,11 @@ unsigned long reconnectAt = 0;
 bool firstMqttSession = true;
 bool hardwareReady = false;
 bool commandCacheReady = false;
-bool wifiConnectStarted = false;
+unsigned long lastWifiBegin = 0;
 constexpr unsigned long HEARTBEAT_MS = 30000;
 constexpr unsigned long TELEMETRY_MS = 60000;
 constexpr unsigned long RECONNECT_MS = 3000;
+constexpr unsigned long WIFI_RETRY_MS = 15000;
 
 const char* stateName(LogicalState s) {
   if (s == LogicalState::On) return "on";
@@ -176,12 +177,14 @@ void publishTelemetry() {
 }
 
 void connectWifi() {
-  if (WiFi.status() == WL_CONNECTED || wifiConnectStarted || strlen(DOMO_WIFI_SSID) == 0) return;
+  if (WiFi.status() == WL_CONNECTED || strlen(DOMO_WIFI_SSID) == 0) return;
+  const unsigned long now = millis();
+  if (lastWifiBegin != 0 && now - lastWifiBegin < WIFI_RETRY_MS) return;
   WiFi.mode(WIFI_STA);
   WiFi.setAutoReconnect(true);
   WiFi.persistent(false);
   WiFi.begin(DOMO_WIFI_SSID, DOMO_WIFI_PASSWORD);
-  wifiConnectStarted = true;
+  lastWifiBegin = now == 0 ? 1 : now;
 }
 
 void handleMqttData(esp_mqtt_event_handle_t event) {
@@ -237,13 +240,12 @@ void loop() {
   hardware.loop();
   if (WiFi.status() != WL_CONNECTED) {
     mqttConnected = false;
-    if (!wifiConnectStarted && millis() >= reconnectAt) {
+    if (millis() >= reconnectAt) {
       reconnectAt = millis() + RECONNECT_MS;
       connectWifi();
     }
     delay(10); return;
   }
-  wifiConnectStarted = false;
   if (!mqtt && millis() >= reconnectAt) {
     reconnectAt = millis() + RECONNECT_MS;
     startMqtt();

@@ -1,35 +1,26 @@
 # Transport MQTT — conformité IoT V1
 
-## Décision technique
+## Implémentation
 
-Le contrat IoT V1 impose QoS 1.
+Le firmware utilise désormais le client MQTT natif ESP32 (esp-mqtt) au lieu de PubSubClient.
 
-Le prototype initial utilise PubSubClient. Cette bibliothèque permet la souscription avec QoS 1,
-mais son API de publication utilisée par le firmware ne fournit pas une publication QoS 1.
+Le contrat IoT V1 impose QoS 1. L'implémentation demande explicitement QoS 1 pour:
+- publication ack;
+- publication heartbeat;
+- publication state;
+- publication telemetry;
+- souscription command;
+- souscription schedule.
 
-Conséquence: command/schedule entrants peuvent être souscrits en QoS 1, mais ACK, heartbeat, state
-et telemetry sortants ne doivent pas être déclarés conformes QoS 1 avec cette implémentation.
+Le Core DOMOSOLUCES et HardwareAdapter restent indépendants des GPIO et de la logique métier serveur.
 
-## Action requise
+## Validation matérielle restante
 
-Remplacer la couche transport par un client ESP32 supportant explicitement:
-- publish QoS 1;
-- subscribe QoS 1;
-- reconnexion;
-- TLS pour la cible production;
-- authentification injectée;
-- confirmation/gestion des publications QoS 1.
+La conformité logicielle demande QoS 1 dans l'API esp-mqtt. La recette sur broker réel doit encore
+prouver les échanges QoS 1 de bout en bout et les reconnexions avant validation prototype.
 
-Le Core DOMOSOLUCES et HardwareAdapter doivent rester indépendants du client MQTT concret.
+## Production
 
-## Critère de sortie
-
-Une capture/test broker doit prouver QoS 1 sur:
-- command;
-- ack;
-- heartbeat;
-- state;
-- telemetry;
-- schedule.
-
-Aucune modification du contrat IoT V1 n'est nécessaire: il s'agit d'une correction d'implémentation.
+La cible production doit en plus activer TLS, authentification device/kit et ACL minimales selon IoT V1.
+Le cycle de certificats/credentials n'est pas encore défini par un contrat de provisioning et ne doit
+pas être inventé dans le firmware prototype.

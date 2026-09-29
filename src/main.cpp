@@ -1,0 +1,162 @@
+#include <Arduino.h>
+#include <WiFi.h>
+#include <PubSubClient.h>
+#include <ArduinoJson.h>
+#include "KeyestudioAdapter.h"
+#include "RecentCommandCache.h"
+
+// Development configuration is injected at build time. Never commit production secrets.
+#ifndef DOMO_WIFI_SSID
+#define DOMO_WIFI_SSID ""
+#endif
+#ifndef DOMO_WIFI_PASSWORD
+#define DOMO_WIFI_PASSWORD ""
+#endif
+#ifndef DOMO_MQTT_HOST
+#define DOMO_MQTT_HOST ""
+#endif
+#ifndef DOMO_MQTT_PORT
+#define DOMO_MQTT_PORT 1883
+#endif
+#ifndef DOMO_MQTT_USER
+#define DOMO_MQTT_USER ""
+#endif
+#ifndef DOMO_MQTT_PASSWORD
+#define DOMO_MQTT_PASSWORD ""
+#endif
+#ifndef DOMO_KIT_SERIAL
+#define DOMO_KIT_SERIAL "KIT-DEV"
+#endif
+#ifndef DOMO_DEVICE_UID
+#define DOMO_DEVICE_UID "DEVICE-DEV"
+#endif
+#ifndef DOMO_FIRMWARE_VERSION
+#define DOMO_FIRMWARE_VERSION "0.1.0-dev"
+#endif
+
+using domo::LogicalState;
+WiFiClient network;
+PubSubClient mqtt(network);
+domo::KeyestudioAdapter hardware;
+domo::RecentCommandCache recentCommands;
+
+String rootTopic;
+unsigned long lastHeartbeat = 0;
+unsigned long reconnectAt = 0;
+constexpr unsigned long HEARTBEAT_MS = 30000;
+constexpr unsigned long RECONNECT_MS = 3000;
+
+const char* stateName(LogicalState s) { return s == LogicalState::On ? "on" : "off"; }
+String topic(const char* suffix) { return rootTopic + "/" + suffix; }
+
+void publishJson(const String& target, JsonDocument& doc, bool retained=false) {
+  char payload[512];
+  const size_t n = serializeJson(doc, payload, sizeof(payload));
+  mqtt.publish(target.c_str(), reinterpret_cast<const uint8_t*>(payload), n, retained);
+}
+
+void publishState(const char* reason) {
+  JsonDocument d;
+  d["state"] = stateName(hardware.readState());
+  d["reason"] = reason;
+  publishJson(topic("state"), d, true);
+}
+
+void publishHeartbeat() {
+  JsonDocument d;
+  d["state"] = stateName(hardware.readState());
+  d["mode"] = "normal";
+  d["rssi"] = WiFi.RSSI();
+  d["ip_address"] = WiFi.localIP().toString();
+  d["firmware_version"] = DOMO_FIRMWARE_VERSION;
+  d["uptime_ms"] = millis();
+  publishJson(topic("heartbeat"), d);
+}
+
+void publishAck(const String& commandId, bool ok, const char* error=nullptr) {
+  JsonDocument d;
+  d["command_id"] = commandId;
+  d["status"] = ok ? "executed" : "failed";
+  if (hardware.readState() != LogicalState::Unknown) d["state"] = stateName(hardware.readState());
+  d["error"] = error ? error : nullptr;
+  d["firmware_version"] = DOMO_FIRMWARE_VERSION;
+  d["uptime_ms"] = millis();
+  publishJson(topic("ack"), d);
+}
+
+void onMessage(char* incomingTopic, byte* bytes, unsigned int length) {
+  if (String(incomingTopic) != topic("command")) return;
+  JsonDocument d;
+  if (deserializeJson(d, bytes, length)) return;
+
+  const String id = d["command_id"] | "";
+  const String action = d["action"] | "";
+  const String requested = d["state"] | "";
+  const String device = d["device_uid"] | "";
+  const String kit = d["kit_serial"] | "";
+
+  if (id.isEmpty()) return; // cannot correlate an ACK safely
+  if (device != DOMO_DEVICE_UID || kit != DOMO_KIT_SERIAL) {
+    publishAck(id, false, "identity_mismatch"); return;
+  }
+  if (recentCommands.contains(id)) {
+    publishAck(id, true); return; // idempotent: never replay physical action
+  }
+  if (action != "set_state" || (requested != "on" && requested != "off")) {
+    publishAck(id, false, "invalid_command"); return;
+  }
+
+  const auto target = requested == "on" ? LogicalState::On : LogicalState::Off;
+  const bool ok = hardware.setState(target);
+  if (ok) {
+    recentCommands.remember(id);
+    publishState("command");
+    publishAck(id, true);
+  } else {
+    publishAck(id, false, "hardware_action_failed");
+  }
+}
+
+void connectWifi() {
+  if (WiFi.status() == WL_CONNECTED || strlen(DOMO_WIFI_SSID) == 0) return;
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(DOMO_WIFI_SSID, DOMO_WIFI_PASSWORD);
+}
+
+void connectMqtt() {
+  if (mqtt.connected() || WiFi.status() != WL_CONNECTED || strlen(DOMO_MQTT_HOST) == 0) return;
+  const String clientId = String("domosoluces-") + DOMO_KIT_SERIAL + "-" + DOMO_DEVICE_UID;
+  if (mqtt.connect(clientId.c_str(), DOMO_MQTT_USER, DOMO_MQTT_PASSWORD)) {
+    mqtt.subscribe(topic("command").c_str(), 1);
+    mqtt.subscribe(topic("schedule").c_str(), 1);
+    publishHeartbeat();
+    publishState("reconnect");
+  }
+}
+
+void setup() {
+  Serial.begin(115200);
+  rootTopic = String("domosoluces/kits/") + DOMO_KIT_SERIAL + "/devices/" + DOMO_DEVICE_UID;
+  hardware.begin();
+  mqtt.setServer(DOMO_MQTT_HOST, DOMO_MQTT_PORT);
+  mqtt.setCallback(onMessage);
+  mqtt.setBufferSize(768);
+  connectWifi();
+}
+
+void loop() {
+  hardware.loop();
+  if (WiFi.status() != WL_CONNECTED) {
+    if (millis() >= reconnectAt) { reconnectAt = millis() + RECONNECT_MS; connectWifi(); }
+    delay(10); return;
+  }
+  if (!mqtt.connected() && millis() >= reconnectAt) {
+    reconnectAt = millis() + RECONNECT_MS; connectMqtt();
+  }
+  mqtt.loop();
+  if (mqtt.connected() && millis() - lastHeartbeat >= HEARTBEAT_MS) {
+    lastHeartbeat = millis();
+    publishHeartbeat();
+  }
+  delay(5);
+}

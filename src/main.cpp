@@ -156,12 +156,22 @@ void onMessage(char* incomingTopic, byte* bytes, unsigned int length) {
   const auto target = requested == "on" ? LogicalState::On : LogicalState::Off;
   const bool ok = hardware.setState(target);
   if (ok) {
-    recentCommands.remember(id, true, hardware.readState());
+    const auto confirmedState = hardware.readState();
+    if (!recentCommands.remember(id, true, confirmedState)) {
+      commandCacheReady = false;
+      publishState("command");
+      publishAck(id, false, "idempotence_persist_failed", confirmedState);
+      return;
+    }
     publishState("command");
-    publishAck(id, true, nullptr, hardware.readState());
+    publishAck(id, true, nullptr, confirmedState);
   } else {
     const auto failedState = hardware.readState();
-    recentCommands.remember(id, false, failedState, "hardware_action_failed");
+    if (!recentCommands.remember(id, false, failedState, "hardware_action_failed")) {
+      commandCacheReady = false;
+      publishAck(id, false, "idempotence_persist_failed", failedState);
+      return;
+    }
     publishAck(id, false, "hardware_action_failed", failedState);
   }
 }

@@ -16,6 +16,7 @@ class KeyestudioAdapter final : public HardwareAdapter {
   }
   bool setState(LogicalState target) override {
     if (target == LogicalState::Unknown) return false;
+    if (state_ == target) return true; // set_state is intrinsically idempotent
     digitalWrite(DOMO_RELAY_PIN, target == LogicalState::On ? HIGH : LOW);
     state_ = digitalRead(DOMO_RELAY_PIN) == HIGH ? LogicalState::On : LogicalState::Off;
     return state_ == target;

@@ -43,6 +43,7 @@ domo::RecentCommandCache recentCommands;
 String rootTopic;
 String mqttClientId;
 volatile uint32_t qos1PublishedCount = 0;
+volatile uint32_t mqttPublishFailureCount = 0;
 unsigned long lastHeartbeat = 0;
 unsigned long lastTelemetry = 0;
 unsigned long reconnectAt = 0;
@@ -81,11 +82,27 @@ bool looksLikeIso8601(const String& value) {
          value[10] == 'T' && value.indexOf(':', 11) > 0;
 }
 
-void publishJson(const String& target, JsonDocument& doc, bool retained=false) {
-  if (!mqtt || !mqttConnected) return;
-  char payload[512];
+bool publishJson(const String& target, JsonDocument& doc, bool retained=false) {
+  if (!mqtt || !mqttConnected) return false;
+  constexpr size_t PayloadCapacity = 512;
+  const size_t required = measureJson(doc);
+  if (required == 0 || required >= PayloadCapacity) {
+    ++mqttPublishFailureCount;
+    return false;
+  }
+  char payload[PayloadCapacity];
   const size_t n = serializeJson(doc, payload, sizeof(payload));
-  esp_mqtt_client_publish(mqtt, target.c_str(), payload, static_cast<int>(n), 1, retained ? 1 : 0);
+  if (n != required) {
+    ++mqttPublishFailureCount;
+    return false;
+  }
+  const int messageId = esp_mqtt_client_publish(
+      mqtt, target.c_str(), payload, static_cast<int>(n), 1, retained ? 1 : 0);
+  if (messageId < 0) {
+    ++mqttPublishFailureCount;
+    return false;
+  }
+  return true;
 }
 
 void publishState(const char* reason) {

@@ -25,6 +25,9 @@ This plan validates the firmware against the normative .project/contracts/IOT_V1
 13. Idempotence storage unavailable: simulate/force NVS initialization failure. A valid command for this device must fail with idempotence_storage_unavailable and no physical transition.
 14. Validation precedence: while NVS/hardware is unavailable, send malformed UUID, malformed sent_at and wrong device identity. Expect invalid_command_id, invalid_sent_at and identity_mismatch respectively; internal hardware/NVS health must not be exposed before envelope/identity validation.
 15. Idempotence persistence failure: force an NVS write/readback failure after a physical set_state. Expect failed ACK idempotence_persist_failed, confirmed state when known, and subsequent valid remote commands blocked by idempotence_storage_unavailable until recovery/reboot.
+16. Fragmented command: deliver one valid command payload through multiple MQTT data fragments with contiguous offsets. Expect exactly one command execution after the final fragment and the normal state/ACK sequence.
+17. Invalid fragment sequence: deliver a command with a gap, overlap, changed total length or out-of-order offset. Expect assembly reset, no physical transition and no partial command execution.
+18. Oversized command: deliver a command whose MQTT payload exceeds 512 bytes. Expect the entire message to be discarded, no physical transition and no unbounded allocation. A later valid command must still be accepted normally.
 
 ## Not yet executable as a normative test
 - schedule behavior: V1 names the topic but does not define its payload or execution semantics.

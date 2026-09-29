@@ -41,6 +41,8 @@ domo::KeyestudioAdapter hardware;
 domo::RecentCommandCache recentCommands;
 
 String rootTopic;
+String mqttClientId;
+volatile uint32_t qos1PublishedCount = 0;
 unsigned long lastHeartbeat = 0;
 unsigned long lastTelemetry = 0;
 unsigned long reconnectAt = 0;
@@ -209,6 +211,9 @@ void onMqttEvent(void*, esp_event_base_t, int32_t eventId, void* eventData) {
     firstMqttSession = false;
   } else if (eventId == MQTT_EVENT_DISCONNECTED) {
     mqttConnected = false;
+  } else if (eventId == MQTT_EVENT_PUBLISHED) {
+    // For QoS 1, ESP-MQTT emits this after the broker PUBACK is received.
+    ++qos1PublishedCount;
   } else if (eventId == MQTT_EVENT_DATA) {
     handleMqttData(event);
   }
@@ -221,7 +226,7 @@ void startMqtt() {
   config.uri = uri.c_str();
   config.username = strlen(DOMO_MQTT_USER) ? DOMO_MQTT_USER : nullptr;
   config.password = strlen(DOMO_MQTT_PASSWORD) ? DOMO_MQTT_PASSWORD : nullptr;
-  config.client_id = nullptr;
+  config.client_id = mqttClientId.c_str();
   mqtt = esp_mqtt_client_init(&config);
   if (!mqtt) return;
   esp_mqtt_client_register_event(mqtt, MQTT_EVENT_ANY, onMqttEvent, nullptr);
@@ -231,6 +236,7 @@ void startMqtt() {
 void setup() {
   Serial.begin(115200);
   rootTopic = String("domosoluces/kits/") + DOMO_KIT_SERIAL + "/devices/" + DOMO_DEVICE_UID;
+  mqttClientId = String("domosoluces-") + DOMO_KIT_SERIAL + "-" + DOMO_DEVICE_UID;
   hardwareReady = hardware.begin();
   commandCacheReady = recentCommands.begin();
   connectWifi();

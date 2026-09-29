@@ -1,6 +1,6 @@
 #include <Arduino.h>
 #include <WiFi.h>
-#include <PubSubClient.h>
+#include <mqtt_client.h>
 #include <ArduinoJson.h>
 #include "KeyestudioAdapter.h"
 #include "RecentCommandCache.h"
@@ -35,8 +35,8 @@
 #endif
 
 using domo::LogicalState;
-WiFiClient network;
-PubSubClient mqtt(network);
+esp_mqtt_client_handle_t mqtt = nullptr;
+bool mqttConnected = false;
 domo::KeyestudioAdapter hardware;
 domo::RecentCommandCache recentCommands;
 
@@ -72,9 +72,10 @@ bool looksLikeIso8601(const String& value) {
 }
 
 void publishJson(const String& target, JsonDocument& doc, bool retained=false) {
+  if (!mqtt || !mqttConnected) return;
   char payload[512];
   const size_t n = serializeJson(doc, payload, sizeof(payload));
-  mqtt.publish(target.c_str(), reinterpret_cast<const uint8_t*>(payload), n, retained);
+  esp_mqtt_client_publish(mqtt, target.c_str(), payload, static_cast<int>(n), 1, retained ? 1 : 0);
 }
 
 void publishState(const char* reason) {
@@ -163,16 +164,43 @@ void connectWifi() {
   WiFi.begin(DOMO_WIFI_SSID, DOMO_WIFI_PASSWORD);
 }
 
-void connectMqtt() {
-  if (mqtt.connected() || WiFi.status() != WL_CONNECTED || strlen(DOMO_MQTT_HOST) == 0) return;
-  const String clientId = String("domosoluces-") + DOMO_KIT_SERIAL + "-" + DOMO_DEVICE_UID;
-  if (mqtt.connect(clientId.c_str(), DOMO_MQTT_USER, DOMO_MQTT_PASSWORD)) {
-    mqtt.subscribe(topic("command").c_str(), 1);
-    mqtt.subscribe(topic("schedule").c_str(), 1);
+void handleMqttData(esp_mqtt_event_handle_t event) {
+  String incomingTopic(event->topic, event->topic_len);
+  if (incomingTopic != topic("command")) return;
+  if (event->total_data_len != event->data_len || event->data_len <= 0) return;
+  onMessage(const_cast<char*>(incomingTopic.c_str()),
+            reinterpret_cast<byte*>(event->data),
+            static_cast<unsigned int>(event->data_len));
+}
+
+void onMqttEvent(void*, esp_event_base_t, int32_t eventId, void* eventData) {
+  auto event = static_cast<esp_mqtt_event_handle_t>(eventData);
+  if (eventId == MQTT_EVENT_CONNECTED) {
+    mqttConnected = true;
+    esp_mqtt_client_subscribe(mqtt, topic("command").c_str(), 1);
+    esp_mqtt_client_subscribe(mqtt, topic("schedule").c_str(), 1);
     publishHeartbeat();
     publishState(firstMqttSession ? "boot" : "reconnect");
     firstMqttSession = false;
+  } else if (eventId == MQTT_EVENT_DISCONNECTED) {
+    mqttConnected = false;
+  } else if (eventId == MQTT_EVENT_DATA) {
+    handleMqttData(event);
   }
+}
+
+void startMqtt() {
+  if (mqtt || WiFi.status() != WL_CONNECTED || strlen(DOMO_MQTT_HOST) == 0) return;
+  String uri = String("mqtt://") + DOMO_MQTT_HOST + ":" + DOMO_MQTT_PORT;
+  esp_mqtt_client_config_t config = {};
+  config.uri = uri.c_str();
+  config.username = strlen(DOMO_MQTT_USER) ? DOMO_MQTT_USER : nullptr;
+  config.password = strlen(DOMO_MQTT_PASSWORD) ? DOMO_MQTT_PASSWORD : nullptr;
+  config.client_id = nullptr;
+  mqtt = esp_mqtt_client_init(&config);
+  if (!mqtt) return;
+  esp_mqtt_client_register_event(mqtt, MQTT_EVENT_ANY, onMqttEvent, nullptr);
+  esp_mqtt_client_start(mqtt);
 }
 
 void setup() {
@@ -180,9 +208,6 @@ void setup() {
   rootTopic = String("domosoluces/kits/") + DOMO_KIT_SERIAL + "/devices/" + DOMO_DEVICE_UID;
   hardware.begin();
   recentCommands.begin();
-  mqtt.setServer(DOMO_MQTT_HOST, DOMO_MQTT_PORT);
-  mqtt.setCallback(onMessage);
-  mqtt.setBufferSize(768);
   connectWifi();
 }
 
@@ -192,15 +217,15 @@ void loop() {
     if (millis() >= reconnectAt) { reconnectAt = millis() + RECONNECT_MS; connectWifi(); }
     delay(10); return;
   }
-  if (!mqtt.connected() && millis() >= reconnectAt) {
-    reconnectAt = millis() + RECONNECT_MS; connectMqtt();
+  if (!mqtt && millis() >= reconnectAt) {
+    reconnectAt = millis() + RECONNECT_MS;
+    startMqtt();
   }
-  mqtt.loop();
-  if (mqtt.connected() && millis() - lastHeartbeat >= HEARTBEAT_MS) {
+  if (mqttConnected && millis() - lastHeartbeat >= HEARTBEAT_MS) {
     lastHeartbeat = millis();
     publishHeartbeat();
   }
-  if (mqtt.connected() && millis() - lastTelemetry >= TELEMETRY_MS) {
+  if (mqttConnected && millis() - lastTelemetry >= TELEMETRY_MS) {
     lastTelemetry = millis();
     publishTelemetry();
   }

@@ -28,6 +28,8 @@ This plan validates the firmware against the normative .project/contracts/IOT_V1
 16. Fragmented command: deliver one valid command payload through multiple MQTT data fragments with contiguous offsets. Expect exactly one command execution after the final fragment and the normal state/ACK sequence.
 17. Invalid fragment sequence: deliver a command with a gap, overlap, changed total length or out-of-order offset. Expect assembly reset, no physical transition and no partial command execution.
 18. Oversized command: deliver a command whose MQTT payload exceeds 512 bytes. Expect the entire message to be discarded, no physical transition and no unbounded allocation. A later valid command must still be accepted normally.
+19. MQTT stalled recovery: keep Wi-Fi connected while broker is unavailable for more than 60 seconds. Expect controlled client recycle; after broker recovery expect heartbeat then state reason=reconnect and normal commands.
+20. Unconfigured hardware mapping: boot without DOMO_RELAY_PIN/DOMO_RELAY_ACTIVE_HIGH. Expect hardware unavailable, no output action, and valid addressed command rejected with hardware_not_ready.
 
 ## Not yet executable as a normative test
 - schedule behavior: V1 names the topic but does not define its payload or execution semantics.

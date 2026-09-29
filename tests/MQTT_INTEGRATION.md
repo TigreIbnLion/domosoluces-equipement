@@ -22,7 +22,9 @@ This plan validates the firmware against the normative .project/contracts/IOT_V1
 10. Wi-Fi interruption: disconnect/reconnect Wi-Fi. Expect MQTT recovery, heartbeat, state reason=reconnect and continued command processing.
 11. Telemetry unsupported: Keyestudio adapter must not publish fabricated electrical measurements.
 12. Long run: operate for at least several heartbeat periods and verify uptime_ms increases and no command is replayed spontaneously.
-13. Idempotence storage unavailable: simulate/force NVS initialization failure. Expect remote commands to fail with idempotence_storage_unavailable and no physical transition.
+13. Idempotence storage unavailable: simulate/force NVS initialization failure. A valid command for this device must fail with idempotence_storage_unavailable and no physical transition.
+14. Validation precedence: while NVS/hardware is unavailable, send malformed UUID, malformed sent_at and wrong device identity. Expect invalid_command_id, invalid_sent_at and identity_mismatch respectively; internal hardware/NVS health must not be exposed before envelope/identity validation.
+15. Idempotence persistence failure: force an NVS write/readback failure after a physical set_state. Expect failed ACK idempotence_persist_failed, confirmed state when known, and subsequent valid remote commands blocked by idempotence_storage_unavailable until recovery/reboot.
 
 ## Not yet executable as a normative test
 - schedule behavior: V1 names the topic but does not define its payload or execution semantics.

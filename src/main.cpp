@@ -55,6 +55,11 @@ constexpr unsigned long HEARTBEAT_MS = 30000;
 constexpr unsigned long TELEMETRY_MS = 60000;
 constexpr unsigned long RECONNECT_MS = 3000;
 constexpr unsigned long WIFI_RETRY_MS = 15000;
+constexpr size_t MQTT_COMMAND_MAX_BYTES = 512;
+char mqttCommandBuffer[MQTT_COMMAND_MAX_BYTES];
+int mqttCommandExpectedBytes = 0;
+int mqttCommandReceivedBytes = 0;
+bool mqttCommandDiscarding = false;
 
 const char* stateName(LogicalState s) {
   if (s == LogicalState::On) return "on";
@@ -216,13 +221,50 @@ void connectWifi() {
   lastWifiBegin = now == 0 ? 1 : now;
 }
 
+void resetMqttCommandAssembly() {
+  mqttCommandExpectedBytes = 0;
+  mqttCommandReceivedBytes = 0;
+  mqttCommandDiscarding = false;
+}
+
 void handleMqttData(esp_mqtt_event_handle_t event) {
   String incomingTopic(event->topic, event->topic_len);
   if (incomingTopic != topic("command")) return;
-  if (event->total_data_len != event->data_len || event->data_len <= 0) return;
-  onMessage(const_cast<char*>(incomingTopic.c_str()),
-            reinterpret_cast<byte*>(event->data),
-            static_cast<unsigned int>(event->data_len));
+  if (event->data_len <= 0 || event->total_data_len <= 0) return;
+
+  if (event->current_data_offset == 0) {
+    resetMqttCommandAssembly();
+    mqttCommandExpectedBytes = event->total_data_len;
+    if (mqttCommandExpectedBytes > static_cast<int>(MQTT_COMMAND_MAX_BYTES)) {
+      mqttCommandDiscarding = true;
+      return;
+    }
+  }
+
+  if (mqttCommandDiscarding) {
+    if (event->current_data_offset + event->data_len >= event->total_data_len) {
+      resetMqttCommandAssembly();
+    }
+    return;
+  }
+
+  if (mqttCommandExpectedBytes != event->total_data_len ||
+      event->current_data_offset != mqttCommandReceivedBytes ||
+      event->current_data_offset < 0 ||
+      event->current_data_offset + event->data_len > mqttCommandExpectedBytes) {
+    resetMqttCommandAssembly();
+    return;
+  }
+
+  memcpy(mqttCommandBuffer + event->current_data_offset, event->data, event->data_len);
+  mqttCommandReceivedBytes += event->data_len;
+
+  if (mqttCommandReceivedBytes == mqttCommandExpectedBytes) {
+    onMessage(const_cast<char*>(incomingTopic.c_str()),
+              reinterpret_cast<byte*>(mqttCommandBuffer),
+              static_cast<unsigned int>(mqttCommandReceivedBytes));
+    resetMqttCommandAssembly();
+  }
 }
 
 void onMqttEvent(void*, esp_event_base_t, int32_t eventId, void* eventData) {

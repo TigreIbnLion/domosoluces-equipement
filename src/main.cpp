@@ -44,12 +44,32 @@ String rootTopic;
 unsigned long lastHeartbeat = 0;
 unsigned long lastTelemetry = 0;
 unsigned long reconnectAt = 0;
+bool firstMqttSession = true;
 constexpr unsigned long HEARTBEAT_MS = 30000;
 constexpr unsigned long TELEMETRY_MS = 60000;
 constexpr unsigned long RECONNECT_MS = 3000;
 
 const char* stateName(LogicalState s) { return s == LogicalState::On ? "on" : "off"; }
 String topic(const char* suffix) { return rootTopic + "/" + suffix; }
+
+bool looksLikeUuid(const String& value) {
+  if (value.length() != 36) return false;
+  for (size_t i = 0; i < value.length(); ++i) {
+    if (i == 8 || i == 13 || i == 18 || i == 23) {
+      if (value[i] != '-') return false;
+    } else if (!isxdigit(static_cast<unsigned char>(value[i]))) {
+      return false;
+    }
+  }
+  return true;
+}
+
+bool looksLikeIso8601(const String& value) {
+  // V1 requires sent_at. Full clock validation belongs to the server; firmware
+  // rejects clearly malformed timestamps without depending on Internet time.
+  return value.length() >= 20 && value[4] == '-' && value[7] == '-' &&
+         value[10] == 'T' && value.indexOf(':', 11) > 0;
+}
 
 void publishJson(const String& target, JsonDocument& doc, bool retained=false) {
   char payload[512];
@@ -97,8 +117,11 @@ void onMessage(char* incomingTopic, byte* bytes, unsigned int length) {
   const String requested = d["state"] | "";
   const String device = d["device_uid"] | "";
   const String kit = d["kit_serial"] | "";
+  const String sentAt = d["sent_at"] | "";
 
   if (id.isEmpty()) return; // cannot correlate an ACK safely
+  if (!looksLikeUuid(id)) { publishAck(id, false, "invalid_command_id"); return; }
+  if (!looksLikeIso8601(sentAt)) { publishAck(id, false, "invalid_sent_at"); return; }
   if (device != DOMO_DEVICE_UID || kit != DOMO_KIT_SERIAL) {
     publishAck(id, false, "identity_mismatch"); return;
   }
@@ -147,7 +170,8 @@ void connectMqtt() {
     mqtt.subscribe(topic("command").c_str(), 1);
     mqtt.subscribe(topic("schedule").c_str(), 1);
     publishHeartbeat();
-    publishState("reconnect");
+    publishState(firstMqttSession ? "boot" : "reconnect");
+    firstMqttSession = false;
   }
 }
 

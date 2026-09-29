@@ -138,8 +138,10 @@ void onMessage(char* incomingTopic, byte* bytes, unsigned int length) {
   }
   domo::CommandResult previous;
   if (recentCommands.find(id, previous)) {
-    publishAck(id, true, nullptr, previous.state);
-    return; // idempotent: replay original result, never the physical action
+    publishAck(id, previous.executed,
+               previous.error.isEmpty() ? nullptr : previous.error.c_str(),
+               previous.state);
+    return; // idempotent: replay exact cached outcome, never the physical action
   }
   if (action != "set_state" || (requested != "on" && requested != "off")) {
     publishAck(id, false, "invalid_command"); return;
@@ -148,11 +150,13 @@ void onMessage(char* incomingTopic, byte* bytes, unsigned int length) {
   const auto target = requested == "on" ? LogicalState::On : LogicalState::Off;
   const bool ok = hardware.setState(target);
   if (ok) {
-    recentCommands.remember(id, hardware.readState());
+    recentCommands.remember(id, true, hardware.readState());
     publishState("command");
     publishAck(id, true, nullptr, hardware.readState());
   } else {
-    publishAck(id, false, "hardware_action_failed");
+    const auto failedState = hardware.readState();
+    recentCommands.remember(id, false, failedState, "hardware_action_failed");
+    publishAck(id, false, "hardware_action_failed", failedState);
   }
 }
 

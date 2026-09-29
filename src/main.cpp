@@ -135,13 +135,13 @@ void onMessage(char* incomingTopic, byte* bytes, unsigned int length) {
   const String sentAt = d["sent_at"] | "";
 
   if (id.isEmpty()) return; // cannot correlate an ACK safely
-  if (!hardwareReady) { publishAck(id, false, "hardware_not_ready"); return; }
-  if (!commandCacheReady) { publishAck(id, false, "idempotence_storage_unavailable"); return; }
   if (!looksLikeUuid(id)) { publishAck(id, false, "invalid_command_id"); return; }
   if (!looksLikeIso8601(sentAt)) { publishAck(id, false, "invalid_sent_at"); return; }
   if (device != DOMO_DEVICE_UID || kit != DOMO_KIT_SERIAL) {
     publishAck(id, false, "identity_mismatch"); return;
   }
+  if (!hardwareReady) { publishAck(id, false, "hardware_not_ready"); return; }
+  if (!commandCacheReady) { publishAck(id, false, "idempotence_storage_unavailable"); return; }
   domo::CommandResult previous;
   if (recentCommands.find(id, previous)) {
     publishAck(id, previous.executed,

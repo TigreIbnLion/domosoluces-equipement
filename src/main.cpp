@@ -45,11 +45,16 @@ unsigned long lastHeartbeat = 0;
 unsigned long lastTelemetry = 0;
 unsigned long reconnectAt = 0;
 bool firstMqttSession = true;
+bool hardwareReady = false;
 constexpr unsigned long HEARTBEAT_MS = 30000;
 constexpr unsigned long TELEMETRY_MS = 60000;
 constexpr unsigned long RECONNECT_MS = 3000;
 
-const char* stateName(LogicalState s) { return s == LogicalState::On ? "on" : "off"; }
+const char* stateName(LogicalState s) {
+  if (s == LogicalState::On) return "on";
+  if (s == LogicalState::Off) return "off";
+  return nullptr;
+}
 String topic(const char* suffix) { return rootTopic + "/" + suffix; }
 
 bool looksLikeUuid(const String& value) {
@@ -79,16 +84,20 @@ void publishJson(const String& target, JsonDocument& doc, bool retained=false) {
 }
 
 void publishState(const char* reason) {
+  const char* state = stateName(hardware.readState());
+  if (!state) return; // V1 state only allows confirmed on/off.
   JsonDocument d;
-  d["state"] = stateName(hardware.readState());
+  d["state"] = state;
   d["reason"] = reason;
   publishJson(topic("state"), d, true);
 }
 
 void publishHeartbeat() {
+  const char* state = stateName(hardware.readState());
+  if (!state) return; // Never fabricate off when hardware state is unknown.
   JsonDocument d;
-  d["state"] = stateName(hardware.readState());
-  d["mode"] = "normal";
+  d["state"] = state;
+  d["mode"] = hardwareReady ? "normal" : "error";
   d["rssi"] = WiFi.RSSI();
   d["ip_address"] = WiFi.localIP().toString();
   d["firmware_version"] = DOMO_FIRMWARE_VERSION;
@@ -121,6 +130,7 @@ void onMessage(char* incomingTopic, byte* bytes, unsigned int length) {
   const String sentAt = d["sent_at"] | "";
 
   if (id.isEmpty()) return; // cannot correlate an ACK safely
+  if (!hardwareReady) { publishAck(id, false, "hardware_not_ready"); return; }
   if (!looksLikeUuid(id)) { publishAck(id, false, "invalid_command_id"); return; }
   if (!looksLikeIso8601(sentAt)) { publishAck(id, false, "invalid_sent_at"); return; }
   if (device != DOMO_DEVICE_UID || kit != DOMO_KIT_SERIAL) {
@@ -206,7 +216,7 @@ void startMqtt() {
 void setup() {
   Serial.begin(115200);
   rootTopic = String("domosoluces/kits/") + DOMO_KIT_SERIAL + "/devices/" + DOMO_DEVICE_UID;
-  hardware.begin();
+  hardwareReady = hardware.begin();
   recentCommands.begin();
   connectWifi();
 }

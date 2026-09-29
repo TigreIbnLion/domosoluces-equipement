@@ -21,7 +21,7 @@ isolation, relay/contactor topology and metering circuitry require the validated
 
 ## Runtime sequence
 
-BOOT -> hardware safe OFF -> Wi-Fi -> MQTT -> heartbeat -> state(reconnect) -> command processing.
+BOOT -> hardware safe OFF -> Wi-Fi -> MQTT -> heartbeat -> state(boot) -> command processing.\n\nAfter a later Wi-Fi/MQTT recovery: MQTT -> heartbeat -> state(reconnect) -> command processing.
 
 Loss of Wi-Fi/MQTT never invents cloud state. Reconnection republishes heartbeat then confirmed
 local state. Duplicate command_id values ACK the existing result without replaying the physical action.

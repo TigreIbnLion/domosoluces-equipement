@@ -32,7 +32,10 @@ class RecentCommandCache {
     if (id.isEmpty()) return;
     CommandResult existing;
     if (find(id, existing)) return;
-    items_[cursor_] = {id, executed, state, error};
+    items_[cursor_].id = id;
+    items_[cursor_].executed = executed;
+    items_[cursor_].state = state;
+    items_[cursor_].error = error;
     cursor_ = (cursor_ + 1) % Capacity;
     saveLast();
   }

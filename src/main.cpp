@@ -230,17 +230,24 @@ void resetMqttCommandAssembly() {
 }
 
 void handleMqttData(esp_mqtt_event_handle_t event) {
-  String incomingTopic(event->topic, event->topic_len);
-  if (incomingTopic != topic("command")) return;
-  if (event->data_len <= 0 || event->total_data_len <= 0) return;
+  if (event->data_len <= 0 || event->total_data_len <= 0 ||
+      event->current_data_offset < 0) {
+    resetMqttCommandAssembly();
+    return;
+  }
 
   if (event->current_data_offset == 0) {
     resetMqttCommandAssembly();
+    const String incomingTopic(event->topic ? event->topic : "", event->topic_len);
+    if (incomingTopic != topic("command")) return;
+
     mqttCommandExpectedBytes = event->total_data_len;
     if (mqttCommandExpectedBytes > static_cast<int>(MQTT_COMMAND_MAX_BYTES)) {
       mqttCommandDiscarding = true;
-      return;
     }
+  } else if (mqttCommandExpectedBytes == 0 && !mqttCommandDiscarding) {
+    // Continuation without an active first fragment is never executable.
+    return;
   }
 
   if (mqttCommandDiscarding) {
@@ -252,7 +259,6 @@ void handleMqttData(esp_mqtt_event_handle_t event) {
 
   if (mqttCommandExpectedBytes != event->total_data_len ||
       event->current_data_offset != mqttCommandReceivedBytes ||
-      event->current_data_offset < 0 ||
       event->current_data_offset + event->data_len > mqttCommandExpectedBytes) {
     resetMqttCommandAssembly();
     return;
@@ -262,7 +268,8 @@ void handleMqttData(esp_mqtt_event_handle_t event) {
   mqttCommandReceivedBytes += event->data_len;
 
   if (mqttCommandReceivedBytes == mqttCommandExpectedBytes) {
-    onMessage(const_cast<char*>(incomingTopic.c_str()),
+    String commandTopic = topic("command");
+    onMessage(const_cast<char*>(commandTopic.c_str()),
               reinterpret_cast<byte*>(mqttCommandBuffer),
               static_cast<unsigned int>(mqttCommandReceivedBytes));
     resetMqttCommandAssembly();
@@ -283,6 +290,7 @@ void onMqttEvent(void*, esp_event_base_t, int32_t eventId, void* eventData) {
     firstMqttSession = false;
   } else if (eventId == MQTT_EVENT_DISCONNECTED) {
     mqttConnected = false;
+    resetMqttCommandAssembly();
     if (mqttDisconnectedSince == 0) {
       mqttDisconnectedSince = millis() == 0 ? 1 : millis();
     }

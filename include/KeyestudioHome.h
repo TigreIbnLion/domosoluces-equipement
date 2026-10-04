@@ -36,6 +36,12 @@
 #ifndef DOMO_DOOR_PIN
 #define DOMO_DOOR_PIN 13
 #endif
+#ifndef DOMO_SERVO_MIN_US
+#define DOMO_SERVO_MIN_US 500
+#endif
+#ifndef DOMO_SERVO_MAX_US
+#define DOMO_SERVO_MAX_US 2500
+#endif
 #ifndef DOMO_STEAM_PIN
 #define DOMO_STEAM_PIN 34
 #endif
@@ -54,7 +60,8 @@ class KeyestudioHome {
     pinMode(DOMO_PIR_PIN,INPUT); pinMode(DOMO_BUTTON1_PIN,INPUT_PULLUP); pinMode(DOMO_BUTTON2_PIN,INPUT_PULLUP);
     pinMode(DOMO_GAS_PIN,INPUT); pinMode(DOMO_STEAM_PIN,INPUT);
     pinMode(DOMO_FAN_A_PIN,OUTPUT); pinMode(DOMO_FAN_B_PIN,OUTPUT); pinMode(DOMO_BUZZER_PIN,OUTPUT);
-    fan(false); buzzer(false); return true;
+    ledcSetup(6,50,16); ledcAttachPin(DOMO_DOOR_PIN,6); ledcSetup(7,50,16); ledcAttachPin(DOMO_WINDOW_PIN,7);
+    fan(false); buzzer(false); door(false); window(false); return true;
   }
   HomeInputs inputs() const {
     HomeInputs x; x.motion=digitalRead(DOMO_PIR_PIN)==HIGH; x.button1=digitalRead(DOMO_BUTTON1_PIN)==LOW;
@@ -70,9 +77,13 @@ class KeyestudioHome {
   void fan(bool on) { digitalWrite(DOMO_FAN_A_PIN,on?HIGH:LOW); digitalWrite(DOMO_FAN_B_PIN,LOW); fanOn_=on; }
   void buzzer(bool on) { digitalWrite(DOMO_BUZZER_PIN,on?HIGH:LOW); buzzerOn_=on; }
   bool fanOn() const { return fanOn_; } bool buzzerOn() const { return buzzerOn_; }
+  void door(bool open){ servo(6,open?90:0); doorOpen_=open; }
+  void window(bool open){ servo(7,open?90:0); windowOpen_=open; }
+  bool doorOpen() const { return doorOpen_; } bool windowOpen() const { return windowOpen_; }
   void setThresholds(int gas,int steam){ gasThreshold_=constrain(gas,0,4095); steamThreshold_=constrain(steam,0,4095); }
   bool shouldAlarm(const HomeEvents& e) const { return (DOMO_LOCAL_GAS_ALARM && e.gasAlarm) || (DOMO_LOCAL_RAIN_ALARM && e.rainAlarm); }
  private:
-  HomeInputs last_{}; unsigned long lastPoll_{0}; int gasThreshold_{1800}; int steamThreshold_{1800}; bool fanOn_{false}; bool buzzerOn_{false};
+  static void servo(uint8_t channel,int degrees){ const uint32_t us=map(constrain(degrees,0,180),0,180,DOMO_SERVO_MIN_US,DOMO_SERVO_MAX_US); const uint32_t duty=(us*65535UL)/20000UL; ledcWrite(channel,duty); }
+  HomeInputs last_{}; unsigned long lastPoll_{0}; int gasThreshold_{1800}; int steamThreshold_{1800}; bool fanOn_{false}; bool buzzerOn_{false}; bool doorOpen_{false}; bool windowOpen_{false};
 };
 }

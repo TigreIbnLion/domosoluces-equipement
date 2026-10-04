@@ -52,3 +52,19 @@ Le KS5009 est un banc de simulation. Avant de marquer une capacite comme validee
 7. rejouer un command_id deja execute et verifier qu'aucune action physique n'est rejouee.
 
 Les capteurs gaz et eau/pluie du prototype servent uniquement a simuler des evenements. Ce test ne constitue aucune validation de securite certifiee.
+
+
+## IOT V2 capabilities
+
+Gate V2 additive, sans regression V1:
+
+- le firmware accepte encore le payload V1 set_state et publie ACK/state V1;
+- un payload schema_version=2.0 n'execute que capability_id + command + value exposes par HardwareAdapter;
+- le banc actuellement valide physiquement n'annonce que la capability generique switch;
+- un command_id V2 rejoue son resultat persiste sans rejouer l'action physique;
+- ACK V2 contient schema_version, command_id, capability_id, value/origin et error_code;
+- state V2 contient capability_id, value, reason/origin et observed_at lorsque l'horloge est valide;
+- le topic /event est reserve aux occurrences de capabilities capteur validees; aucune capability non testee ne doit etre publiee;
+- recovery: force_off par defaut; restore_last_state uniquement explicite; safe_value valide applique la valeur configuree;
+- apres boot/recovery/reconnexion, heartbeat precede la resynchronisation state;
+- SSID/password restent strictement dans le provisioning local Mobile <-> ESP32 et ne transitent jamais par Laravel.

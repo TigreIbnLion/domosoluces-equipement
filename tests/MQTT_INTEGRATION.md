@@ -68,3 +68,20 @@ Gate V2 additive, sans regression V1:
 - recovery: force_off par defaut; restore_last_state uniquement explicite; safe_value valide applique la valeur configuree;
 - apres boot/recovery/reconnexion, heartbeat precede la resynchronisation state;
 - SSID/password restent strictement dans le provisioning local Mobile <-> ESP32 et ne transitent jamais par Laravel.
+
+
+## Gate physique pour promouvoir une capability V2
+
+Pour chaque capability candidate, executer et consigner dans cet ordre:
+
+1. verifier le cablage officiel du banc sans inventer de GPIO;
+2. demarrer et confirmer l'absence d'erreur materielle;
+3. provoquer au moins trois changements/mesures reels et verifier leur lecture locale;
+4. pour un actionneur, verifier commande -> action physique -> lecture confirmee;
+5. couper/reconnecter MQTT et verifier la resynchronisation sans action parasite;
+6. redemarrer et verifier la policy recovery applicable;
+7. seulement apres ces preuves, modifier le registre `.project/EQUIPMENT_CAPABILITY_MATRIX.md` puis exposer la capability dans l'adapter;
+8. pour une occurrence discrete, verifier publication sur `/event`; pour une mesure, verifier `telemetry`;
+9. verifier qu'aucun GPIO, nom Keyestudio ou secret n'apparait dans le payload metier.
+
+Gaz/eau/pluie restent des simulations d'automatisation, jamais une certification de securite.

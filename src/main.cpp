@@ -5,6 +5,8 @@
 #include <ArduinoJson.h>
 #include "KeyestudioAdapter.h"
 #include "RecentCommandCache.h"
+#include "DeviceConfig.h"
+#include "ProvisioningPortal.h"
 
 // Development configuration is injected at build time. Never commit production secrets.
 #ifndef DOMO_WIFI_SSID
@@ -12,6 +14,12 @@
 #endif
 #ifndef DOMO_WIFI_PASSWORD
 #define DOMO_WIFI_PASSWORD ""
+#endif
+#ifndef DOMO_PROVISIONING_CODE
+#define DOMO_PROVISIONING_CODE ""
+#endif
+#ifndef DOMO_PROVISION_BUTTON_PIN
+#define DOMO_PROVISION_BUTTON_PIN 16
 #endif
 #ifndef DOMO_NTP_SERVER
 #define DOMO_NTP_SERVER "pool.ntp.org"
@@ -49,6 +57,9 @@ esp_mqtt_client_handle_t mqtt = nullptr;
 bool mqttConnected = false;
 domo::KeyestudioAdapter hardware;
 domo::RecentCommandCache recentCommands;
+domo::DeviceConfig deviceConfig;
+domo::WifiCredentials wifiCredentials;
+domo::ProvisioningPortal provisioning(deviceConfig, DOMO_DEVICE_UID, DOMO_PROVISIONING_CODE);
 
 String rootTopic;
 String mqttClientId;
@@ -245,7 +256,7 @@ const char* wifiStatusName(wl_status_t status) {
 
 void connectWifi() {
   const wl_status_t status = WiFi.status();
-  if (status == WL_CONNECTED || strlen(DOMO_WIFI_SSID) == 0) return;
+  if (status == WL_CONNECTED || !wifiCredentials.configured() || provisioning.active()) return;
 
   const unsigned long now = millis();
   if (wifiAttemptInProgress) {
@@ -261,8 +272,8 @@ void connectWifi() {
   WiFi.mode(WIFI_STA);
   WiFi.setAutoReconnect(true);
   WiFi.persistent(false);
-  Serial.printf("[WIFI] connecting ssid=%s\n", DOMO_WIFI_SSID);
-  const wl_status_t beginStatus = WiFi.begin(DOMO_WIFI_SSID, DOMO_WIFI_PASSWORD);
+  Serial.printf("[WIFI] connecting ssid=%s\n", wifiCredentials.ssid.c_str());
+  const wl_status_t beginStatus = WiFi.begin(wifiCredentials.ssid.c_str(), wifiCredentials.password.c_str());
   lastWifiBegin = now == 0 ? 1 : now;
   wifiAttemptInProgress = true;
   Serial.printf("[WIFI] begin status=%s\n", wifiStatusName(beginStatus));
@@ -431,21 +442,32 @@ void setup() {
                 DOMO_FIRMWARE_VERSION, static_cast<int>(esp_reset_reason()));
   Serial.printf("[BOOT] identity kit=%s device=%s\n", DOMO_KIT_SERIAL, DOMO_DEVICE_UID);
   Serial.printf("[BOOT] config wifi=%s mqtt_host=%s mqtt_port=%d tls=%s\n",
-                strlen(DOMO_WIFI_SSID) ? "configured" : "missing",
+                wifiCredentials.configured() ? "configured" : "missing",
                 strlen(DOMO_MQTT_HOST) ? DOMO_MQTT_HOST : "missing",
                 DOMO_MQTT_PORT, DOMO_MQTT_TLS ? "on" : "off");
   rootTopic = String("domosoluces/kits/") + DOMO_KIT_SERIAL + "/devices/" + DOMO_DEVICE_UID;
   mqttClientId = String("domosoluces-") + DOMO_KIT_SERIAL + "-" + DOMO_DEVICE_UID;
+  deviceConfig.begin();
+  wifiCredentials = deviceConfig.wifi(DOMO_WIFI_SSID, DOMO_WIFI_PASSWORD);
+  pinMode(DOMO_PROVISION_BUTTON_PIN, INPUT_PULLUP);
+  const bool forceProvision = digitalRead(DOMO_PROVISION_BUTTON_PIN) == LOW;
   hardwareReady = hardware.begin();
   commandCacheReady = recentCommands.begin();
   Serial.printf("[BOOT] hardware=%s command_cache=%s\n",
                 hardwareReady ? "ready" : "not_ready",
                 commandCacheReady ? "ready" : "not_ready");
-  connectWifi();
+  if (!wifiCredentials.configured() || forceProvision) {
+    Serial.printf("[PROVISION] requested reason=%s\n", forceProvision ? "physical_button" : "wifi_missing");
+    provisioning.begin();
+  } else {
+    connectWifi();
+  }
 }
 
 void loop() {
   hardware.loop();
+  provisioning.loop();
+  if (provisioning.active()) { delay(5); return; }
   const wl_status_t wifiStatus = WiFi.status();
   if (wifiStatus != lastWifiStatus) {
     Serial.printf("[WIFI] status=%s (%d)\n", wifiStatusName(wifiStatus), static_cast<int>(wifiStatus));

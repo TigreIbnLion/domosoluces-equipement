@@ -7,6 +7,7 @@
 #include "RecentCommandCache.h"
 #include "DeviceConfig.h"
 #include "ProvisioningPortal.h"
+#include "KeyestudioHome.h"
 
 // Development configuration is injected at build time. Never commit production secrets.
 #ifndef DOMO_WIFI_SSID
@@ -60,6 +61,7 @@ domo::RecentCommandCache recentCommands;
 domo::DeviceConfig deviceConfig;
 domo::WifiCredentials wifiCredentials;
 domo::ProvisioningPortal provisioning(deviceConfig, DOMO_DEVICE_UID, DOMO_PROVISIONING_CODE);
+domo::KeyestudioHome home;
 
 String rootTopic;
 String mqttClientId;
@@ -452,6 +454,7 @@ void setup() {
   pinMode(DOMO_PROVISION_BUTTON_PIN, INPUT_PULLUP);
   const bool forceProvision = digitalRead(DOMO_PROVISION_BUTTON_PIN) == LOW;
   hardwareReady = hardware.begin();
+  home.begin();
   commandCacheReady = recentCommands.begin();
   Serial.printf("[BOOT] hardware=%s command_cache=%s\n",
                 hardwareReady ? "ready" : "not_ready",

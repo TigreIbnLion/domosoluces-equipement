@@ -1,5 +1,6 @@
 #pragma once
 #include "HardwareAdapter.h"
+#include <DHT.h>
 #ifndef DOMO_LED_PIN
 #define DOMO_LED_PIN 12
 #endif
@@ -8,6 +9,9 @@
 #endif
 #ifndef DOMO_DHT_PIN
 #define DOMO_DHT_PIN 17
+#endif
+#ifndef DOMO_DHT_TYPE
+#define DOMO_DHT_TYPE DHT11
 #endif
 #ifndef DOMO_FAN_A_PIN
 #define DOMO_FAN_A_PIN 19
@@ -56,13 +60,14 @@
 #endif
 namespace domo {
 struct HomeInputs { bool motion{false}; bool button1{false}; bool button2{false}; int gas{0}; int steam{0}; };
-struct HomeSnapshot { HomeInputs inputs; bool fanOn{false}; bool buzzerOn{false}; bool doorOpen{false}; bool windowOpen{false}; bool indicatorOn{false}; };
+struct HomeSnapshot { HomeInputs inputs; bool hasClimate{false}; float temperatureC{0}; float humidityPct{0}; bool fanOn{false}; bool buzzerOn{false}; bool doorOpen{false}; bool windowOpen{false}; bool indicatorOn{false}; };
 struct HomeEvents { bool motionStarted{false}; bool button1Pressed{false}; bool button2Pressed{false}; bool gasAlarm{false}; bool rainAlarm{false}; };
 class KeyestudioHome {
  public:
+  KeyestudioHome(): dht_(DOMO_DHT_PIN, DOMO_DHT_TYPE) {}
   bool begin() {
     pinMode(DOMO_PIR_PIN,INPUT); pinMode(DOMO_BUTTON1_PIN,INPUT_PULLUP); pinMode(DOMO_BUTTON2_PIN,INPUT_PULLUP);
-    pinMode(DOMO_GAS_PIN,INPUT); pinMode(DOMO_STEAM_PIN,INPUT);
+    pinMode(DOMO_GAS_PIN,INPUT); pinMode(DOMO_STEAM_PIN,INPUT); dht_.begin();
     pinMode(DOMO_FAN_A_PIN,OUTPUT); pinMode(DOMO_FAN_B_PIN,OUTPUT); pinMode(DOMO_BUZZER_PIN,OUTPUT);
     ledcSetup(6,50,16); ledcAttachPin(DOMO_DOOR_PIN,6); ledcSetup(7,50,16); ledcAttachPin(DOMO_WINDOW_PIN,7);
     ledcSetup(5,5000,8); ledcAttachPin(DOMO_RGB_PIN,5);
@@ -87,11 +92,12 @@ class KeyestudioHome {
   bool doorOpen() const { return doorOpen_; } bool windowOpen() const { return windowOpen_; }
   void indicator(bool on){ ledcWrite(5,on?32:0); indicatorOn_=on; }
   bool indicatorOn() const { return indicatorOn_; }
-  HomeSnapshot snapshot() const { HomeSnapshot s; s.inputs=inputs(); s.fanOn=fanOn_; s.buzzerOn=buzzerOn_; s.doorOpen=doorOpen_; s.windowOpen=windowOpen_; s.indicatorOn=indicatorOn_; return s; }
+  HomeSnapshot snapshot() { HomeSnapshot s; s.inputs=inputs(); const float h=dht_.readHumidity(); const float t=dht_.readTemperature(); if(!isnan(h)&&!isnan(t)){ s.hasClimate=true; s.temperatureC=t; s.humidityPct=h; } s.fanOn=fanOn_; s.buzzerOn=buzzerOn_; s.doorOpen=doorOpen_; s.windowOpen=windowOpen_; s.indicatorOn=indicatorOn_; return s; }
   void setThresholds(int gas,int steam){ gasThreshold_=constrain(gas,0,4095); steamThreshold_=constrain(steam,0,4095); }
   bool shouldAlarm(const HomeEvents& e) const { return (DOMO_LOCAL_GAS_ALARM && e.gasAlarm) || (DOMO_LOCAL_RAIN_ALARM && e.rainAlarm); }
  private:
   static void servo(uint8_t channel,int degrees){ const uint32_t us=map(constrain(degrees,0,180),0,180,DOMO_SERVO_MIN_US,DOMO_SERVO_MAX_US); const uint32_t duty=(us*65535UL)/20000UL; ledcWrite(channel,duty); }
+  DHT dht_;
   HomeInputs last_{}; unsigned long lastPoll_{0}; int gasThreshold_{1800}; int steamThreshold_{1800}; bool fanOn_{false}; bool buzzerOn_{false}; bool doorOpen_{false}; bool windowOpen_{false}; bool indicatorOn_{false};
 };
 }

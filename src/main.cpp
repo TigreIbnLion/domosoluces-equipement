@@ -71,6 +71,7 @@ constexpr unsigned long TIME_SYNC_RETRY_MS = 15000;
 constexpr time_t MIN_VALID_UNIX_TIME = 1704067200; // 2024-01-01 UTC
 unsigned long lastTimeSyncBegin = 0;
 bool timeSyncRequested = false;
+bool timeSyncReported = false;
 constexpr size_t MQTT_COMMAND_MAX_BYTES = 512;
 char mqttCommandBuffer[MQTT_COMMAND_MAX_BYTES];
 int mqttCommandExpectedBytes = 0;
@@ -241,6 +242,21 @@ bool systemTimeValid() {
   return time(nullptr) >= MIN_VALID_UNIX_TIME;
 }
 
+void reportSystemTimeOnce() {
+  if (timeSyncReported || !systemTimeValid()) return;
+  const time_t now = time(nullptr);
+  struct tm utc {};
+  if (gmtime_r(&now, &utc)) {
+    char formatted[32];
+    strftime(formatted, sizeof(formatted), "%Y-%m-%dT%H:%M:%SZ", &utc);
+    Serial.printf("[TIME] UTC synchronized: %s (epoch=%lld)\n",
+                  formatted, static_cast<long long>(now));
+  } else {
+    Serial.printf("[TIME] Clock valid (epoch=%lld)\n", static_cast<long long>(now));
+  }
+  timeSyncReported = true;
+}
+
 bool ensureTlsClockReady() {
   if (!DOMO_MQTT_TLS) return true;
   if (systemTimeValid()) return true;
@@ -311,6 +327,7 @@ void handleMqttData(esp_mqtt_event_handle_t event) {
 void onMqttEvent(void*, esp_event_base_t, int32_t eventId, void* eventData) {
   auto event = static_cast<esp_mqtt_event_handle_t>(eventData);
   if (eventId == MQTT_EVENT_CONNECTED) {
+    Serial.println("[MQTT] TLS/MQTT connected");
     mqttConnected = true;
     mqttDisconnectedSince = 0;
     lastHeartbeat = millis();
@@ -320,6 +337,17 @@ void onMqttEvent(void*, esp_event_base_t, int32_t eventId, void* eventData) {
     publishHeartbeat();
     publishState(firstMqttSession ? "boot" : "reconnect");
     firstMqttSession = false;
+  } else if (eventId == MQTT_EVENT_ERROR) {
+    Serial.println("[MQTT] connection error");
+    if (event && event->error_handle) {
+      const auto* error = event->error_handle;
+      Serial.printf("[MQTT] error_type=%d tls_last=0x%x tls_stack=0x%x cert_flags=0x%x sock_errno=%d\n",
+                    static_cast<int>(error->error_type),
+                    static_cast<unsigned int>(error->esp_tls_last_esp_err),
+                    static_cast<unsigned int>(error->esp_tls_stack_err),
+                    static_cast<unsigned int>(error->esp_tls_cert_verify_flags),
+                    error->esp_transport_sock_errno);
+    }
   } else if (eventId == MQTT_EVENT_DISCONNECTED) {
     mqttConnected = false;
     resetMqttCommandAssembly();
@@ -387,6 +415,8 @@ void loop() {
   }
   if (DOMO_MQTT_TLS && !systemTimeValid()) {
     ensureTlsClockReady();
+  } else if (DOMO_MQTT_TLS) {
+    reportSystemTimeOnce();
   }
   if (!mqtt && millis() >= reconnectAt) {
     reconnectAt = millis() + RECONNECT_MS;

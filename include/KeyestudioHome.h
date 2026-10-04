@@ -1,6 +1,7 @@
 #pragma once
 #include "HardwareAdapter.h"
 #include <DHT.h>
+#include <Adafruit_NeoPixel.h>
 #ifndef DOMO_LED_PIN
 #define DOMO_LED_PIN 12
 #endif
@@ -64,13 +65,13 @@ struct HomeSnapshot { HomeInputs inputs; bool hasClimate{false}; float temperatu
 struct HomeEvents { bool motionStarted{false}; bool button1Pressed{false}; bool button2Pressed{false}; bool gasAlarm{false}; bool rainAlarm{false}; };
 class KeyestudioHome {
  public:
-  KeyestudioHome(): dht_(DOMO_DHT_PIN, DOMO_DHT_TYPE) {}
+  KeyestudioHome(): dht_(DOMO_DHT_PIN, DOMO_DHT_TYPE), rgb_(DOMO_RGB_PIXELS, DOMO_RGB_PIN, NEO_GRB + NEO_KHZ800) {}
   bool begin() {
     pinMode(DOMO_PIR_PIN,INPUT); pinMode(DOMO_BUTTON1_PIN,INPUT_PULLUP); pinMode(DOMO_BUTTON2_PIN,INPUT_PULLUP);
     pinMode(DOMO_GAS_PIN,INPUT); pinMode(DOMO_STEAM_PIN,INPUT); dht_.begin();
     pinMode(DOMO_FAN_A_PIN,OUTPUT); pinMode(DOMO_FAN_B_PIN,OUTPUT); pinMode(DOMO_BUZZER_PIN,OUTPUT);
     ledcSetup(6,50,16); ledcAttachPin(DOMO_DOOR_PIN,6); ledcSetup(7,50,16); ledcAttachPin(DOMO_WINDOW_PIN,7);
-    ledcSetup(5,5000,8); ledcAttachPin(DOMO_RGB_PIN,5);
+    rgb_.begin(); rgb_.clear(); rgb_.show();
     fan(false); buzzer(false); door(false); window(false); indicator(false); return true;
   }
   HomeInputs inputs() const {
@@ -90,7 +91,7 @@ class KeyestudioHome {
   void door(bool open){ servo(6,open?90:0); doorOpen_=open; }
   void window(bool open){ servo(7,open?90:0); windowOpen_=open; }
   bool doorOpen() const { return doorOpen_; } bool windowOpen() const { return windowOpen_; }
-  void indicator(bool on){ ledcWrite(5,on?32:0); indicatorOn_=on; }
+  void indicator(bool on){ rgb_.setPixelColor(0,on?rgb_.Color(0,32,0):0); rgb_.show(); indicatorOn_=on; }
   bool indicatorOn() const { return indicatorOn_; }
   HomeSnapshot snapshot() { HomeSnapshot s; s.inputs=inputs(); const float h=dht_.readHumidity(); const float t=dht_.readTemperature(); if(!isnan(h)&&!isnan(t)){ s.hasClimate=true; s.temperatureC=t; s.humidityPct=h; } s.fanOn=fanOn_; s.buzzerOn=buzzerOn_; s.doorOpen=doorOpen_; s.windowOpen=windowOpen_; s.indicatorOn=indicatorOn_; return s; }
   void setThresholds(int gas,int steam){ (void)gas; steamThreshold_=constrain(steam,0,4095); }
@@ -98,6 +99,7 @@ class KeyestudioHome {
  private:
   static void servo(uint8_t channel,int degrees){ const uint32_t us=map(constrain(degrees,0,180),0,180,DOMO_SERVO_MIN_US,DOMO_SERVO_MAX_US); const uint32_t duty=(us*65535UL)/20000UL; ledcWrite(channel,duty); }
   DHT dht_;
+  Adafruit_NeoPixel rgb_;
   HomeInputs last_{}; unsigned long lastPoll_{0}; int steamThreshold_{1800}; bool fanOn_{false}; bool buzzerOn_{false}; bool doorOpen_{false}; bool windowOpen_{false}; bool indicatorOn_{false};
 };
 }

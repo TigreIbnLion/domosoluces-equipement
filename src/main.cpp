@@ -24,6 +24,12 @@
 #ifndef DOMO_MQTT_PASSWORD
 #define DOMO_MQTT_PASSWORD ""
 #endif
+#ifndef DOMO_MQTT_TLS
+#define DOMO_MQTT_TLS 0
+#endif
+#ifndef DOMO_MQTT_CA_CERT
+#define DOMO_MQTT_CA_CERT ""
+#endif
 #ifndef DOMO_KIT_SERIAL
 #define DOMO_KIT_SERIAL "KIT-DEV"
 #endif
@@ -304,9 +310,16 @@ void onMqttEvent(void*, esp_event_base_t, int32_t eventId, void* eventData) {
 
 void startMqtt() {
   if (mqtt || WiFi.status() != WL_CONNECTED || strlen(DOMO_MQTT_HOST) == 0) return;
-  String uri = String("mqtt://") + DOMO_MQTT_HOST + ":" + DOMO_MQTT_PORT;
+  if (DOMO_MQTT_TLS && strlen(DOMO_MQTT_CA_CERT) == 0) return;
+  String uri = String(DOMO_MQTT_TLS ? "mqtts://" : "mqtt://") +
+               DOMO_MQTT_HOST + ":" + DOMO_MQTT_PORT;
   esp_mqtt_client_config_t config = {};
   config.uri = uri.c_str();
+  if (DOMO_MQTT_TLS) {
+    // Trust only the injected recipe/production CA. Never disable certificate
+    // verification and never embed a private CA key in firmware.
+    config.cert_pem = DOMO_MQTT_CA_CERT;
+  }
   config.username = strlen(DOMO_MQTT_USER) ? DOMO_MQTT_USER : nullptr;
   config.password = strlen(DOMO_MQTT_PASSWORD) ? DOMO_MQTT_PASSWORD : nullptr;
   config.client_id = mqttClientId.c_str();

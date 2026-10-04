@@ -70,6 +70,8 @@ volatile uint32_t mqttPublishFailureCount = 0;
 unsigned long lastHeartbeat = 0;
 unsigned long lastTelemetry = 0;
 unsigned long localAlarmUntil = 0;
+unsigned long lastHomeDiagnostic = 0;
+constexpr unsigned long HOME_DIAGNOSTIC_MS = 10000;
 unsigned long reconnectAt = 0;
 bool firstMqttSession = true;
 bool hardwareReady = false;
@@ -484,6 +486,11 @@ void loop() {
   }
   if (home.shouldAlarm(localEvents)) { home.buzzer(true); localAlarmUntil=millis()+5000UL; }
   if (localAlarmUntil && static_cast<long>(millis()-localAlarmUntil)>=0) { home.buzzer(false); localAlarmUntil=0; }
+  if (millis()-lastHomeDiagnostic >= HOME_DIAGNOSTIC_MS) {
+    lastHomeDiagnostic=millis(); const auto s=home.snapshot();
+    Serial.printf("[HOME] motion=%d gas=%d steam=%d fan=%d buzzer=%d door=%d window=%d indicator=%d\n",
+      s.inputs.motion,s.inputs.gas,s.inputs.steam,s.fanOn,s.buzzerOn,s.doorOpen,s.windowOpen,s.indicatorOn);
+  }
   provisioning.loop();
   if (provisioning.active()) { delay(5); return; }
   const wl_status_t wifiStatus = WiFi.status();

@@ -30,6 +30,21 @@ class KeyestudioAdapter final : public HardwareAdapter {
   }
   LogicalState readState() const override { return state_; }
   Telemetry readTelemetry() const override { return {}; }
+  size_t capabilityCount() const override { return state_ == LogicalState::Unknown ? 0 : 1; }
+  CapabilityDescriptor capability(size_t index) const override {
+    if (index != 0 || state_ == LogicalState::Unknown) return {nullptr, CapabilitySemantic::Switch, false, false, false};
+    return {"switch", CapabilitySemantic::Switch, true, true, false};
+  }
+  bool readCapability(const String& id, CapabilityValue& out) const override {
+    if (id != "switch" || state_ == LogicalState::Unknown) return false;
+    out.available=true; out.value=state_ == LogicalState::On ? "on" : "off"; return true;
+  }
+  bool executeCapability(const String& id, const String& command, const String& value, CapabilityValue& confirmed) override {
+    if (id != "switch" || command != "set_state" || (value != "on" && value != "off")) return false;
+    const auto target=value == "on" ? LogicalState::On : LogicalState::Off;
+    if (!setState(target)) return false;
+    return readCapability(id, confirmed);
+  }
   void loop() override {}
  private:
   static int electricalLevel(LogicalState target) {

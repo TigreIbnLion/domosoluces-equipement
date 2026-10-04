@@ -213,6 +213,7 @@ void onMessage(char* incomingTopic, byte* bytes, unsigned int length) {
   const bool ok = hardware.setState(target);
   if (ok) {
     const auto confirmedState = hardware.readState();
+    deviceConfig.saveConfirmedState(confirmedState);
     if (!recentCommands.remember(id, true, confirmedState)) {
       commandCacheReady = false;
       publishState("command");
@@ -456,6 +457,12 @@ void setup() {
   const bool forceProvision = digitalRead(DOMO_PROVISION_BUTTON_PIN) == LOW;
   hardwareReady = hardware.begin();
   home.begin();
+  if (hardwareReady) {
+    const auto recovered=deviceConfig.confirmedState();
+    if (recovered != LogicalState::Unknown && hardware.setState(recovered)) {
+      Serial.printf("[RECOVERY] restored confirmed state=%s\n", stateName(recovered));
+    }
+  }
   commandCacheReady = recentCommands.begin();
   Serial.printf("[BOOT] hardware=%s command_cache=%s\n",
                 hardwareReady ? "ready" : "not_ready",
@@ -473,7 +480,7 @@ void loop() {
   const auto localEvents = home.poll();
   if (localEvents.button1Pressed && hardwareReady) {
     const auto current=hardware.readState(); const auto target=current==LogicalState::On?LogicalState::Off:LogicalState::On;
-    if(hardware.setState(target) && mqttConnected) publishState("local");
+    if(hardware.setState(target)) { deviceConfig.saveConfirmedState(hardware.readState()); if(mqttConnected) publishState("local"); }
   }
   if (localEvents.gasAlarm || localEvents.rainAlarm) { home.buzzer(true); localAlarmUntil=millis()+5000UL; }
   if (localAlarmUntil && static_cast<long>(millis()-localAlarmUntil)>=0) { home.buzzer(false); localAlarmUntil=0; }

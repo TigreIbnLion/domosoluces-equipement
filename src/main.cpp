@@ -441,14 +441,14 @@ void setup() {
   Serial.printf("\n[BOOT] DOMOSOLUCES firmware=%s reset_reason=%d\n",
                 DOMO_FIRMWARE_VERSION, static_cast<int>(esp_reset_reason()));
   Serial.printf("[BOOT] identity kit=%s device=%s\n", DOMO_KIT_SERIAL, DOMO_DEVICE_UID);
+  deviceConfig.begin();
+  wifiCredentials = deviceConfig.wifi(DOMO_WIFI_SSID, DOMO_WIFI_PASSWORD);
   Serial.printf("[BOOT] config wifi=%s mqtt_host=%s mqtt_port=%d tls=%s\n",
                 wifiCredentials.configured() ? "configured" : "missing",
                 strlen(DOMO_MQTT_HOST) ? DOMO_MQTT_HOST : "missing",
                 DOMO_MQTT_PORT, DOMO_MQTT_TLS ? "on" : "off");
   rootTopic = String("domosoluces/kits/") + DOMO_KIT_SERIAL + "/devices/" + DOMO_DEVICE_UID;
   mqttClientId = String("domosoluces-") + DOMO_KIT_SERIAL + "-" + DOMO_DEVICE_UID;
-  deviceConfig.begin();
-  wifiCredentials = deviceConfig.wifi(DOMO_WIFI_SSID, DOMO_WIFI_PASSWORD);
   pinMode(DOMO_PROVISION_BUTTON_PIN, INPUT_PULLUP);
   const bool forceProvision = digitalRead(DOMO_PROVISION_BUTTON_PIN) == LOW;
   hardwareReady = hardware.begin();

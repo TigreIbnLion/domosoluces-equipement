@@ -482,7 +482,7 @@ void loop() {
     const auto current=hardware.readState(); const auto target=current==LogicalState::On?LogicalState::Off:LogicalState::On;
     if(hardware.setState(target)) { deviceConfig.saveConfirmedState(hardware.readState()); if(mqttConnected) publishState("local"); }
   }
-  if (localEvents.gasAlarm || localEvents.rainAlarm) { home.buzzer(true); localAlarmUntil=millis()+5000UL; }
+  if (home.shouldAlarm(localEvents)) { home.buzzer(true); localAlarmUntil=millis()+5000UL; }
   if (localAlarmUntil && static_cast<long>(millis()-localAlarmUntil)>=0) { home.buzzer(false); localAlarmUntil=0; }
   provisioning.loop();
   if (provisioning.active()) { delay(5); return; }

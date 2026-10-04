@@ -37,3 +37,18 @@ This plan validates the firmware against the normative .project/contracts/IOT_V1
 - production TLS/device credential provisioning: required by V1 for final production but credentials/certificate lifecycle are not yet specified.
 
 Those items require a LEAD contract extension before implementation.
+
+
+## Recette materielle non contractuelle KS5009
+
+Le KS5009 est un banc de simulation. Avant de marquer une capacite comme validee dans `.project/EQUIPMENT_CAPABILITY_MATRIX.md`:
+
+1. demarrer sans appui: un appui court sur le bouton partage ne doit pas entrer en provisioning;
+2. maintenir le bouton de provisioning au moins 3 s au boot: le portail local doit demarrer;
+3. configurer le Wi-Fi localement, redemarrer et verifier la reconnexion Wi-Fi/MQTT;
+4. verifier chaque capteur/actionneur via le diagnostic serie sans publier de champ hors IOT_V1;
+5. couper/reprendre Wi-Fi puis broker et verifier heartbeat/state apres reconnexion;
+6. redemarrer l'ESP32 et verifier la politique de recovery configuree;
+7. rejouer un command_id deja execute et verifier qu'aucune action physique n'est rejouee.
+
+Les capteurs gaz et eau/pluie du prototype servent uniquement a simuler des evenements. Ce test ne constitue aucune validation de securite certifiee.

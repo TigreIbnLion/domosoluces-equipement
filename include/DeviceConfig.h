@@ -22,8 +22,22 @@ class DeviceConfig {
     if (state == LogicalState::Unknown) return false;
     return prefs_.putUChar("last_state", state == LogicalState::On ? 1 : 0) == 1;
   }
-  bool saveRecoveryPolicy(bool restoreLastState) { return prefs_.putBool("restore_state", restoreLastState) == 1; }
-  bool restoreLastStateEnabled(bool fallback=false) { return prefs_.getBool("restore_state", fallback); }
+  bool saveRecoveryPolicy(const String& policy, LogicalState safeValue=LogicalState::Off) {
+    if(policy!="force_off"&&policy!="restore_last_state"&&policy!="safe_value") return false;
+    if(policy=="safe_value"&&safeValue==LogicalState::Unknown) return false;
+    if(prefs_.putString("recovery_policy",policy)!=policy.length()) return false;
+    if(policy=="safe_value") return prefs_.putUChar("safe_state",safeValue==LogicalState::On?1:0)==1;
+    return true;
+  }
+  String recoveryPolicy() {
+    const String p=prefs_.getString("recovery_policy","");
+    if(p=="force_off"||p=="restore_last_state"||p=="safe_value") return p;
+    if(prefs_.getBool("restore_state",false)) return "restore_last_state";
+    return "force_off";
+  }
+  LogicalState recoverySafeValue() { return prefs_.getUChar("safe_state",0)==1?LogicalState::On:LogicalState::Off; }
+  bool saveRecoveryPolicy(bool restoreLastState) { return saveRecoveryPolicy(restoreLastState?"restore_last_state":"force_off"); }
+  bool restoreLastStateEnabled(bool fallback=false) { const String p=recoveryPolicy(); return p=="restore_last_state" || (p.isEmpty()&&fallback); }
   LogicalState confirmedState() {
     if (!prefs_.isKey("last_state")) return LogicalState::Unknown;
     return prefs_.getUChar("last_state", 2) == 1 ? LogicalState::On : LogicalState::Off;

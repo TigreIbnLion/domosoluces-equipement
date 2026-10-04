@@ -81,6 +81,7 @@ constexpr unsigned long HOME_DIAGNOSTIC_MS = 10000;
 unsigned long reconnectAt = 0;
 bool firstMqttSession = true;
 bool recoveredPhysicalState = false;
+bool recoveryApplied = false;
 bool hardwareReady = false;
 bool commandCacheReady = false;
 unsigned long lastWifiBegin = 0;
@@ -451,10 +452,10 @@ void onMqttEvent(void*, esp_event_base_t, int32_t eventId, void* eventData) {
     esp_mqtt_client_subscribe(mqtt, topic("command").c_str(), 1);
     esp_mqtt_client_subscribe(mqtt, topic("schedule").c_str(), 1);
     publishHeartbeat();
-    const char* syncReason=firstMqttSession ? (recoveredPhysicalState ? "recovery" : "boot") : "reconnect";
+    const char* syncReason=firstMqttSession ? (recoveryApplied ? "recovery" : "boot") : "reconnect";
     publishState(syncReason);
     for(size_t i=0;i<hardware.capabilityCount();++i){ const auto cap=hardware.capability(i); domo::CapabilityValue value;
-      if(cap.id&&cap.readable&&hardware.readCapability(cap.id,value)&&value.available) publishV2State(cap.id,value.value,syncReason,firstMqttSession?"recovery":"device");
+      if(cap.id&&cap.readable&&hardware.readCapability(cap.id,value)&&value.available) publishV2State(cap.id,value.value,syncReason,firstMqttSession?(recoveryApplied?"recovery":"device"):"device");
     }
     firstMqttSession = false;
   } else if (eventId == MQTT_EVENT_ERROR) {
@@ -552,7 +553,7 @@ void setup() {
       if(recovered==LogicalState::Unknown) applyRecovery=false; else recoveryTarget=recovered;
     } else if(recoveryPolicy=="safe_value") recoveryTarget=deviceConfig.recoverySafeValue();
     if(applyRecovery && hardware.setState(recoveryTarget)) {
-      recoveredPhysicalState=true;
+      recoveredPhysicalState=true; recoveryApplied=true;
       Serial.printf("[RECOVERY] applied policy=%s state=%s\n",recoveryPolicy.c_str(),stateName(recoveryTarget));
     } else Serial.printf("[RECOVERY] policy=%s no restorable value; fail-safe hardware default retained\n",recoveryPolicy.c_str());
   }

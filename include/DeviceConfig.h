@@ -1,6 +1,7 @@
 #pragma once
 #include <Arduino.h>
 #include <Preferences.h>
+#include "HardwareAdapter.h"
 namespace domo {
 struct WifiCredentials { String ssid; String password; bool configured() const { return !ssid.isEmpty(); } };
 class DeviceConfig {
@@ -17,6 +18,14 @@ class DeviceConfig {
     return prefs_.putString("wifi_ssid", ssid)==ssid.length() && prefs_.putString("wifi_pass", password)==password.length();
   }
   bool clearWifi() { return prefs_.remove("wifi_ssid") | prefs_.remove("wifi_pass"); }
+  bool saveConfirmedState(LogicalState state) {
+    if (state == LogicalState::Unknown) return false;
+    return prefs_.putUChar("last_state", state == LogicalState::On ? 1 : 0) == 1;
+  }
+  LogicalState confirmedState() {
+    if (!prefs_.isKey("last_state")) return LogicalState::Unknown;
+    return prefs_.getUChar("last_state", 2) == 1 ? LogicalState::On : LogicalState::Off;
+  }
  private: Preferences prefs_;
 };
 }

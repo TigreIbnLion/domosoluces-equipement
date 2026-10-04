@@ -68,6 +68,9 @@ class RecentCommandCache {
     cursor_ = prefs_.getUChar("cursor", 0) % Capacity;
     for (size_t i = 0; i < Capacity; ++i) {
       const String key = String("c") + i;
+      // Missing slots are normal on first boot. Avoid Preferences emitting an
+      // error for every empty cache entry.
+      if (!prefs_.isKey(key.c_str())) continue;
       const String raw = prefs_.getString(key.c_str(), "");
       if (raw.isEmpty()) continue;
 

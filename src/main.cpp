@@ -201,6 +201,12 @@ void publishV2State(const String& capabilityId, const String& value, const char*
   d["reason"]=reason; d["origin"]=origin; const String observed=isoNow(); if(!observed.isEmpty()) d["observed_at"]=observed;
   publishJson(topic("state"),d,true);
 }
+void publishV2Event(const String& capabilityId, const String& eventName, bool value) {
+  JsonDocument d; d["schema_version"]="2.0"; d["capability_id"]=capabilityId; d["event"]=eventName;
+  d["value"]=value; d["origin"]="device"; const String observed=isoNow(); if(!observed.isEmpty()) d["observed_at"]=observed;
+  publishJson(topic("event"),d);
+}
+
 void publishV2Ack(const String& id,bool ok,const String& capabilityId,const String& value,const String& origin,
                   const char* errorCode=nullptr,const char* error=nullptr) {
   JsonDocument d; d["schema_version"]="2.0"; d["command_id"]=id; d["status"]=ok?"executed":"failed";

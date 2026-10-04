@@ -9,6 +9,7 @@ Pour le premier essai: uniquement LED/charge basse tension/module du kit. Jamais
 - DOMO_WIFI_SSID / DOMO_WIFI_PASSWORD
 - DOMO_MQTT_HOST / DOMO_MQTT_PORT
 - DOMO_MQTT_USER / DOMO_MQTT_PASSWORD si requis par le broker recette
+- DOMO_MQTT_TLS=1 pour MQTT TLS; DOMO_MQTT_CA_CERT doit contenir le certificat CA PEM injecte localement
 - DOMO_KIT_SERIAL / DOMO_DEVICE_UID, identiques aux identites Laravel/broker
 - DOMO_RELAY_PIN, seulement apres verification du mapping Keyestudio
 - DOMO_RELAY_ACTIVE_HIGH: 1 si ON=HIGH, 0 si ON=LOW, seulement apres verification
@@ -51,3 +52,19 @@ pio device monitor -b 115200
 
 La lecture actuelle confirme le niveau de sortie GPIO du MCU, pas le contact reel d'un relais ni la charge.
 La recette physique doit donc observer independamment la LED/module.
+
+
+## Recette ESP32 TLS externe
+
+Parametres publics valides pour la recette physique:
+- MQTT host: 157.173.107.21
+- MQTT port: 8883
+- TLS: obligatoire, verification CA active
+- KIT_SERIAL: KIT-RECIPE-ESP32-001
+- DEVICE_UID: ESP32-KEYESTUDIO-001
+- MQTT username: esp32_keyestudio_recipe
+- Keyestudio LED: IO12, active HIGH
+
+Le mot de passe MQTT et le CA PEM restent hors Git. Recuperer uniquement `ca.crt`; ne jamais copier `ca.key`.
+Le CA est injecte a la compilation via `DOMO_MQTT_CA_CERT`. Le firmware refuse de demarrer MQTT TLS si ce CA est absent.
+Ne jamais desactiver la verification du certificat pour contourner un probleme de connexion.

@@ -69,6 +69,7 @@ volatile uint32_t qos1PublishedCount = 0;
 volatile uint32_t mqttPublishFailureCount = 0;
 unsigned long lastHeartbeat = 0;
 unsigned long lastTelemetry = 0;
+unsigned long localAlarmUntil = 0;
 unsigned long reconnectAt = 0;
 bool firstMqttSession = true;
 bool hardwareReady = false;
@@ -469,6 +470,13 @@ void setup() {
 
 void loop() {
   hardware.loop();
+  const auto localEvents = home.poll();
+  if (localEvents.button1Pressed && hardwareReady) {
+    const auto current=hardware.readState(); const auto target=current==LogicalState::On?LogicalState::Off:LogicalState::On;
+    if(hardware.setState(target) && mqttConnected) publishState("local");
+  }
+  if (localEvents.gasAlarm || localEvents.rainAlarm) { home.buzzer(true); localAlarmUntil=millis()+5000UL; }
+  if (localAlarmUntil && static_cast<long>(millis()-localAlarmUntil)>=0) { home.buzzer(false); localAlarmUntil=0; }
   provisioning.loop();
   if (provisioning.active()) { delay(5); return; }
   const wl_status_t wifiStatus = WiFi.status();

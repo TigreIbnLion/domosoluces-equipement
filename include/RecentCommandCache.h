@@ -9,6 +9,11 @@ struct CommandResult {
   bool executed{false};
   LogicalState state{LogicalState::Unknown};
   String error;
+  bool v2{false};
+  String capabilityId;
+  String value;
+  String origin;
+  String errorCode;
 };
 
 class RecentCommandCache {
@@ -28,7 +33,9 @@ class RecentCommandCache {
     return false;
   }
 
-  bool remember(const String& id, bool executed, LogicalState state, const String& error = "") {
+  bool remember(const String& id, bool executed, LogicalState state, const String& error = "",
+                bool v2=false, const String& capabilityId="", const String& value="",
+                const String& origin="", const String& errorCode="") {
     if (id.isEmpty()) return false;
     CommandResult existing;
     if (find(id, existing)) return true;
@@ -38,7 +45,8 @@ class RecentCommandCache {
     candidate.id = id;
     candidate.executed = executed;
     candidate.state = state;
-    candidate.error = error;
+    candidate.error = error; candidate.v2=v2; candidate.capabilityId=capabilityId;
+    candidate.value=value; candidate.origin=origin; candidate.errorCode=errorCode;
 
     if (!save(slot, candidate)) return false;
 
@@ -82,7 +90,13 @@ class RecentCommandCache {
         items_[i].id = raw.substring(0, p1);
         items_[i].executed = raw.substring(p1 + 1, p2) == "1";
         items_[i].state = parseState(raw.substring(p2 + 1, p3));
-        items_[i].error = raw.substring(p3 + 1);
+        const String tail=raw.substring(p3 + 1);
+        const int q1=tail.indexOf('|'), q2=q1<0?-1:tail.indexOf('|',q1+1), q3=q2<0?-1:tail.indexOf('|',q2+1), q4=q3<0?-1:tail.indexOf('|',q3+1), q5=q4<0?-1:tail.indexOf('|',q4+1);
+        if(q1>=0&&q2>q1&&q3>q2&&q4>q3&&q5>q4){
+          items_[i].error=tail.substring(0,q1); items_[i].v2=tail.substring(q1+1,q2)=="1";
+          items_[i].capabilityId=tail.substring(q2+1,q3); items_[i].value=tail.substring(q3+1,q4);
+          items_[i].origin=tail.substring(q4+1,q5); items_[i].errorCode=tail.substring(q5+1);
+        } else items_[i].error=tail;
         continue;
       }
 
@@ -100,7 +114,9 @@ class RecentCommandCache {
   bool save(size_t slot, const CommandResult& item) {
     const String key = String("c") + slot;
     const String raw = item.id + "|" + (item.executed ? "1" : "0") +
-                       "|" + stateName(item.state) + "|" + item.error;
+                       "|" + stateName(item.state) + "|" + item.error + "|" +
+                       (item.v2 ? "1" : "0") + "|" + item.capabilityId + "|" + item.value +
+                       "|" + item.origin + "|" + item.errorCode;
     const size_t written = prefs_.putString(key.c_str(), raw);
     if (written != raw.length()) return false;
     return prefs_.getString(key.c_str(), "") == raw;

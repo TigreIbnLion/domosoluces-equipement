@@ -24,6 +24,9 @@
 #ifndef DOMO_RGB_PIN
 #define DOMO_RGB_PIN 26
 #endif
+#ifndef DOMO_RGB_PIXELS
+#define DOMO_RGB_PIXELS 1
+#endif
 #ifndef DOMO_GAS_PIN
 #define DOMO_GAS_PIN 23
 #endif
@@ -61,7 +64,8 @@ class KeyestudioHome {
     pinMode(DOMO_GAS_PIN,INPUT); pinMode(DOMO_STEAM_PIN,INPUT);
     pinMode(DOMO_FAN_A_PIN,OUTPUT); pinMode(DOMO_FAN_B_PIN,OUTPUT); pinMode(DOMO_BUZZER_PIN,OUTPUT);
     ledcSetup(6,50,16); ledcAttachPin(DOMO_DOOR_PIN,6); ledcSetup(7,50,16); ledcAttachPin(DOMO_WINDOW_PIN,7);
-    fan(false); buzzer(false); door(false); window(false); return true;
+    ledcSetup(5,5000,8); ledcAttachPin(DOMO_RGB_PIN,5);
+    fan(false); buzzer(false); door(false); window(false); indicator(false); return true;
   }
   HomeInputs inputs() const {
     HomeInputs x; x.motion=digitalRead(DOMO_PIR_PIN)==HIGH; x.button1=digitalRead(DOMO_BUTTON1_PIN)==LOW;
@@ -80,10 +84,12 @@ class KeyestudioHome {
   void door(bool open){ servo(6,open?90:0); doorOpen_=open; }
   void window(bool open){ servo(7,open?90:0); windowOpen_=open; }
   bool doorOpen() const { return doorOpen_; } bool windowOpen() const { return windowOpen_; }
+  void indicator(bool on){ ledcWrite(5,on?32:0); indicatorOn_=on; }
+  bool indicatorOn() const { return indicatorOn_; }
   void setThresholds(int gas,int steam){ gasThreshold_=constrain(gas,0,4095); steamThreshold_=constrain(steam,0,4095); }
   bool shouldAlarm(const HomeEvents& e) const { return (DOMO_LOCAL_GAS_ALARM && e.gasAlarm) || (DOMO_LOCAL_RAIN_ALARM && e.rainAlarm); }
  private:
   static void servo(uint8_t channel,int degrees){ const uint32_t us=map(constrain(degrees,0,180),0,180,DOMO_SERVO_MIN_US,DOMO_SERVO_MAX_US); const uint32_t duty=(us*65535UL)/20000UL; ledcWrite(channel,duty); }
-  HomeInputs last_{}; unsigned long lastPoll_{0}; int gasThreshold_{1800}; int steamThreshold_{1800}; bool fanOn_{false}; bool buzzerOn_{false}; bool doorOpen_{false}; bool windowOpen_{false};
+  HomeInputs last_{}; unsigned long lastPoll_{0}; int gasThreshold_{1800}; int steamThreshold_{1800}; bool fanOn_{false}; bool buzzerOn_{false}; bool doorOpen_{false}; bool windowOpen_{false}; bool indicatorOn_{false};
 };
 }

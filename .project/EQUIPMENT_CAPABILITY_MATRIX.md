@@ -6,7 +6,7 @@ Les capteurs gaz et eau/pluie du prototype simulent des evenements: ils ne const
 
 | Capacite logique | Interface / fonction materielle | Banc KS5009 | Direction | Validation physique |
 |---|---|---|---|---|
-| Etat binaire principal | HardwareAdapter::setState/readState | LED jaune / sortie prototype | actionneur | VALIDE E2E Web/Mobile |
+| Etat binaire principal (`switch`) | HardwareAdapter::setState/readState + capability `switch` | LED jaune / sortie prototype | actionneur | VALIDE E2E Web/Mobile + declare V2 |
 | Mesures electriques V1 | HardwareAdapter::readTelemetry | non disponible | capteur | NON SUPPORTE - ne pas fabriquer |
 | Mouvement | KeyestudioHome::inputs/poll | PIR | capteur | A VALIDER |
 | Commande locale 1 | KeyestudioHome::poll | bouton 1 | capteur | A VALIDER |
@@ -34,3 +34,11 @@ Aucune nouvelle commande metier n'est definie ici. Les noms, payloads, ACK et et
 - Une mesure absente ou invalide reste indisponible; aucune valeur artificielle n'est publiee.
 - Les details du KS5009 restent dans l'adapter/banc de simulation.
 - Le futur materiel industriel devra fournir les memes capacites logiques via un IndustrialHardwareAdapter sans exposer son cablage au protocole.
+
+
+## Registre de declaration V2
+
+Le firmware ne doit exposer dans son manifeste runtime que les lignes marquees `VALIDE ... + declare V2`.
+Etat actuel: **switch uniquement**.
+
+Les autres lignes restent des fonctions de banc disponibles pour recette. Leur presence dans le code, leur compilation ou leur diagnostic serie ne vaut pas validation physique et ne permet pas de les annoncer au serveur.

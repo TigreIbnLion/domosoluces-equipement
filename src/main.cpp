@@ -55,6 +55,9 @@
 #ifndef DOMO_FIRMWARE_VERSION
 #define DOMO_FIRMWARE_VERSION "0.1.0-dev"
 #endif
+#ifndef DOMO_RESTORE_LAST_STATE
+#define DOMO_RESTORE_LAST_STATE 0
+#endif
 
 using domo::LogicalState;
 esp_mqtt_client_handle_t mqtt = nullptr;
@@ -77,6 +80,7 @@ unsigned long lastHomeDiagnostic = 0;
 constexpr unsigned long HOME_DIAGNOSTIC_MS = 10000;
 unsigned long reconnectAt = 0;
 bool firstMqttSession = true;
+bool recoveredPhysicalState = false;
 bool hardwareReady = false;
 bool commandCacheReady = false;
 unsigned long lastWifiBegin = 0;
@@ -385,7 +389,7 @@ void onMqttEvent(void*, esp_event_base_t, int32_t eventId, void* eventData) {
     esp_mqtt_client_subscribe(mqtt, topic("command").c_str(), 1);
     esp_mqtt_client_subscribe(mqtt, topic("schedule").c_str(), 1);
     publishHeartbeat();
-    publishState(firstMqttSession ? "boot" : "reconnect");
+    publishState(firstMqttSession ? (recoveredPhysicalState ? "recovery" : "boot") : "reconnect");
     firstMqttSession = false;
   } else if (eventId == MQTT_EVENT_ERROR) {
     Serial.println("[MQTT] connection error");
@@ -473,9 +477,15 @@ void setup() {
   hardwareReady = hardware.begin();
   home.begin();
   if (hardwareReady) {
+    const bool restoreLastState=deviceConfig.restoreLastStateEnabled(DOMO_RESTORE_LAST_STATE != 0);
     const auto recovered=deviceConfig.confirmedState();
-    if (recovered != LogicalState::Unknown && hardware.setState(recovered)) {
-      Serial.printf("[RECOVERY] restored confirmed state=%s\n", stateName(recovered));
+    if (restoreLastState && recovered != LogicalState::Unknown && hardware.setState(recovered)) {
+      recoveredPhysicalState=true;
+      Serial.printf("[RECOVERY] restored confirmed state=%s policy=restore_last_state\n", stateName(recovered));
+    } else {
+      Serial.printf("[RECOVERY] policy=%s stored_state=%s\n",
+                    restoreLastState ? "restore_last_state" : "force_off",
+                    stateName(recovered) ? stateName(recovered) : "unknown");
     }
   }
   commandCacheReady = recentCommands.begin();

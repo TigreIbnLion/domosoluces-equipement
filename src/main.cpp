@@ -187,10 +187,64 @@ void publishAck(const String& commandId, bool ok, const char* error=nullptr, Log
   publishJson(topic("ack"), d);
 }
 
+String isoNow() {
+  if (!systemTimeValid()) return "";
+  time_t now=time(nullptr); struct tm utc{}; char out[25]{};
+  if (!gmtime_r(&now,&utc)) return "";
+  strftime(out,sizeof(out),"%Y-%m-%dT%H:%M:%SZ",&utc); return String(out);
+}
+
+void publishV2State(const String& capabilityId, const String& value, const char* reason, const String& origin) {
+  JsonDocument d; d["schema_version"]="2.0"; d["capability_id"]=capabilityId; d["value"]=value;
+  d["reason"]=reason; d["origin"]=origin; const String observed=isoNow(); if(!observed.isEmpty()) d["observed_at"]=observed;
+  publishJson(topic("state"),d,true);
+}
+void publishV2Ack(const String& id,bool ok,const String& capabilityId,const String& value,const String& origin,
+                  const char* errorCode=nullptr,const char* error=nullptr) {
+  JsonDocument d; d["schema_version"]="2.0"; d["command_id"]=id; d["status"]=ok?"executed":"failed";
+  d["capability_id"]=capabilityId; if(!value.isEmpty()) d["value"]=value; d["origin"]=origin;
+  d["error_code"]=errorCode?errorCode:nullptr; d["error"]=error?error:nullptr; d["device_uid"]=DOMO_DEVICE_UID;
+  d["kit_serial"]=DOMO_KIT_SERIAL; d["firmware_version"]=DOMO_FIRMWARE_VERSION; d["uptime_ms"]=millis();
+  publishJson(topic("ack"),d);
+}
+bool handleV2Command(JsonDocument& d) {
+  const String id=d["command_id"]|""; const String cap=d["capability_id"]|""; const String command=d["command"]|"";
+  const String value=d["value"]|""; const String origin=d["origin"]|"cloud"; const String device=d["device_uid"]|"";
+  const String kit=d["kit_serial"]|""; const String sentAt=d["sent_at"]|"";
+  if(id.isEmpty()) return true;
+  if(!looksLikeUuid(id)||!looksLikeIso8601(sentAt)||device!=DOMO_DEVICE_UID||kit!=DOMO_KIT_SERIAL){
+    publishV2Ack(id,false,cap,"",origin,"internal_error","invalid envelope"); return true;
+  }
+  domo::CommandResult previous;
+  if(recentCommands.find(id,previous)){
+    if(previous.v2) publishV2Ack(id,previous.executed,previous.capabilityId,previous.value,previous.origin,
+      previous.errorCode.isEmpty()?nullptr:previous.errorCode.c_str(),previous.error.isEmpty()?nullptr:previous.error.c_str());
+    else publishAck(id,previous.executed,previous.error.isEmpty()?nullptr:previous.error.c_str(),previous.state);
+    return true;
+  }
+  if(!hardwareReady||!commandCacheReady){ publishV2Ack(id,false,cap,"",origin,"unavailable","hardware unavailable"); return true; }
+  bool known=false; for(size_t i=0;i<hardware.capabilityCount();++i){ const auto x=hardware.capability(i); if(x.id&&cap==x.id){known=true;break;} }
+  if(!known){ publishV2Ack(id,false,cap,"",origin,"unsupported_capability"); return true; }
+  domo::CapabilityValue confirmed;
+  if(!hardware.executeCapability(cap,command,value,confirmed)){
+    const char* code=command=="set_state"?"invalid_value":"unsupported_command";
+    recentCommands.remember(id,false,hardware.readState(),"",true,cap,"",origin,code);
+    publishV2Ack(id,false,cap,"",origin,code); return true;
+  }
+  deviceConfig.saveConfirmedState(hardware.readState());
+  if(!recentCommands.remember(id,true,hardware.readState(),"",true,cap,confirmed.value,origin,"")){
+    commandCacheReady=false; publishV2Ack(id,false,cap,confirmed.value,origin,"internal_error","idempotence persist failed"); return true;
+  }
+  publishV2State(cap,confirmed.value,"command",origin); publishV2Ack(id,true,cap,confirmed.value,origin); return true;
+}
+
 void onMessage(char* incomingTopic, byte* bytes, unsigned int length) {
   if (String(incomingTopic) != topic("command")) return;
   JsonDocument d;
   if (deserializeJson(d, bytes, length)) return;
+
+  const String schema=d["schema_version"]|"";
+  if(schema=="2.0") { handleV2Command(d); return; }
 
   const String id = d["command_id"] | "";
   const String action = d["action"] | "";
@@ -389,7 +443,11 @@ void onMqttEvent(void*, esp_event_base_t, int32_t eventId, void* eventData) {
     esp_mqtt_client_subscribe(mqtt, topic("command").c_str(), 1);
     esp_mqtt_client_subscribe(mqtt, topic("schedule").c_str(), 1);
     publishHeartbeat();
-    publishState(firstMqttSession ? (recoveredPhysicalState ? "recovery" : "boot") : "reconnect");
+    const char* syncReason=firstMqttSession ? (recoveredPhysicalState ? "recovery" : "boot") : "reconnect";
+    publishState(syncReason);
+    for(size_t i=0;i<hardware.capabilityCount();++i){ const auto cap=hardware.capability(i); domo::CapabilityValue value;
+      if(cap.id&&cap.readable&&hardware.readCapability(cap.id,value)&&value.available) publishV2State(cap.id,value.value,syncReason,firstMqttSession?"recovery":"device");
+    }
     firstMqttSession = false;
   } else if (eventId == MQTT_EVENT_ERROR) {
     Serial.println("[MQTT] connection error");
@@ -505,7 +563,7 @@ void loop() {
   const auto localEvents = home.poll();
   if (localEvents.button1Pressed && hardwareReady) {
     const auto current=hardware.readState(); const auto target=current==LogicalState::On?LogicalState::Off:LogicalState::On;
-    if(hardware.setState(target)) { deviceConfig.saveConfirmedState(hardware.readState()); if(mqttConnected) publishState("local"); }
+    if(hardware.setState(target)) { deviceConfig.saveConfirmedState(hardware.readState()); if(mqttConnected) { publishState("local"); domo::CapabilityValue v; if(hardware.readCapability("switch",v)&&v.available) publishV2State("switch",v.value,"local","local"); } }
   }
   if (home.shouldAlarm(localEvents)) { home.buzzer(true); localAlarmUntil=millis()+5000UL; }
   if (localAlarmUntil && static_cast<long>(millis()-localAlarmUntil)>=0) { home.buzzer(false); localAlarmUntil=0; }

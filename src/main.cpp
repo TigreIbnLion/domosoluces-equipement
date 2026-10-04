@@ -22,6 +22,9 @@
 #ifndef DOMO_PROVISION_BUTTON_PIN
 #define DOMO_PROVISION_BUTTON_PIN 16
 #endif
+#ifndef DOMO_PROVISION_HOLD_MS
+#define DOMO_PROVISION_HOLD_MS 3000UL
+#endif
 #ifndef DOMO_NTP_SERVER
 #define DOMO_NTP_SERVER "pool.ntp.org"
 #endif
@@ -456,7 +459,17 @@ void setup() {
   rootTopic = String("domosoluces/kits/") + DOMO_KIT_SERIAL + "/devices/" + DOMO_DEVICE_UID;
   mqttClientId = String("domosoluces-") + DOMO_KIT_SERIAL + "-" + DOMO_DEVICE_UID;
   pinMode(DOMO_PROVISION_BUTTON_PIN, INPUT_PULLUP);
-  const bool forceProvision = digitalRead(DOMO_PROVISION_BUTTON_PIN) == LOW;
+  bool forceProvision = false;
+  if (digitalRead(DOMO_PROVISION_BUTTON_PIN) == LOW) {
+    const unsigned long heldFrom = millis();
+    while (digitalRead(DOMO_PROVISION_BUTTON_PIN) == LOW &&
+           millis() - heldFrom < DOMO_PROVISION_HOLD_MS) { delay(10); }
+    forceProvision = digitalRead(DOMO_PROVISION_BUTTON_PIN) == LOW &&
+                     millis() - heldFrom >= DOMO_PROVISION_HOLD_MS;
+    Serial.printf("[PROVISION] boot button=%s hold_ms=%lu\n",
+                  forceProvision ? "accepted" : "ignored_short_press",
+                  static_cast<unsigned long>(millis() - heldFrom));
+  }
   hardwareReady = hardware.begin();
   home.begin();
   if (hardwareReady) {

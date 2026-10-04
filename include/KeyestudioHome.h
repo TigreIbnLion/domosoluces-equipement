@@ -59,7 +59,7 @@
 #define DOMO_LOCAL_RAIN_ALARM 0
 #endif
 namespace domo {
-struct HomeInputs { bool motion{false}; bool button1{false}; bool button2{false}; int gas{0}; int steam{0}; };
+struct HomeInputs { bool motion{false}; bool button1{false}; bool button2{false}; bool gasDetected{false}; int steam{0}; };
 struct HomeSnapshot { HomeInputs inputs; bool hasClimate{false}; float temperatureC{0}; float humidityPct{0}; bool fanOn{false}; bool buzzerOn{false}; bool doorOpen{false}; bool windowOpen{false}; bool indicatorOn{false}; };
 struct HomeEvents { bool motionStarted{false}; bool button1Pressed{false}; bool button2Pressed{false}; bool gasAlarm{false}; bool rainAlarm{false}; };
 class KeyestudioHome {
@@ -75,13 +75,13 @@ class KeyestudioHome {
   }
   HomeInputs inputs() const {
     HomeInputs x; x.motion=digitalRead(DOMO_PIR_PIN)==HIGH; x.button1=digitalRead(DOMO_BUTTON1_PIN)==LOW;
-    x.button2=digitalRead(DOMO_BUTTON2_PIN)==LOW; x.gas=analogRead(DOMO_GAS_PIN); x.steam=analogRead(DOMO_STEAM_PIN); return x;
+    x.button2=digitalRead(DOMO_BUTTON2_PIN)==LOW; x.gasDetected=digitalRead(DOMO_GAS_PIN)==LOW; x.steam=analogRead(DOMO_STEAM_PIN); return x;
   }
   HomeEvents poll() {
     const unsigned long now=millis(); if(now-lastPoll_<100) return {};
     lastPoll_=now; const auto cur=inputs(); HomeEvents e;
     e.motionStarted=cur.motion&&!last_.motion; e.button1Pressed=cur.button1&&!last_.button1; e.button2Pressed=cur.button2&&!last_.button2;
-    e.gasAlarm=cur.gas>=gasThreshold_&&last_.gas<gasThreshold_; e.rainAlarm=cur.steam>=steamThreshold_&&last_.steam<steamThreshold_;
+    e.gasAlarm=cur.gasDetected&&!last_.gasDetected; e.rainAlarm=cur.steam>=steamThreshold_&&last_.steam<steamThreshold_;
     last_=cur; return e;
   }
   void fan(bool on) { digitalWrite(DOMO_FAN_A_PIN,on?HIGH:LOW); digitalWrite(DOMO_FAN_B_PIN,LOW); fanOn_=on; }
@@ -93,11 +93,11 @@ class KeyestudioHome {
   void indicator(bool on){ ledcWrite(5,on?32:0); indicatorOn_=on; }
   bool indicatorOn() const { return indicatorOn_; }
   HomeSnapshot snapshot() { HomeSnapshot s; s.inputs=inputs(); const float h=dht_.readHumidity(); const float t=dht_.readTemperature(); if(!isnan(h)&&!isnan(t)){ s.hasClimate=true; s.temperatureC=t; s.humidityPct=h; } s.fanOn=fanOn_; s.buzzerOn=buzzerOn_; s.doorOpen=doorOpen_; s.windowOpen=windowOpen_; s.indicatorOn=indicatorOn_; return s; }
-  void setThresholds(int gas,int steam){ gasThreshold_=constrain(gas,0,4095); steamThreshold_=constrain(steam,0,4095); }
+  void setThresholds(int gas,int steam){ (void)gas; steamThreshold_=constrain(steam,0,4095); }
   bool shouldAlarm(const HomeEvents& e) const { return (DOMO_LOCAL_GAS_ALARM && e.gasAlarm) || (DOMO_LOCAL_RAIN_ALARM && e.rainAlarm); }
  private:
   static void servo(uint8_t channel,int degrees){ const uint32_t us=map(constrain(degrees,0,180),0,180,DOMO_SERVO_MIN_US,DOMO_SERVO_MAX_US); const uint32_t duty=(us*65535UL)/20000UL; ledcWrite(channel,duty); }
   DHT dht_;
-  HomeInputs last_{}; unsigned long lastPoll_{0}; int gasThreshold_{1800}; int steamThreshold_{1800}; bool fanOn_{false}; bool buzzerOn_{false}; bool doorOpen_{false}; bool windowOpen_{false}; bool indicatorOn_{false};
+  HomeInputs last_{}; unsigned long lastPoll_{0}; int steamThreshold_{1800}; bool fanOn_{false}; bool buzzerOn_{false}; bool doorOpen_{false}; bool windowOpen_{false}; bool indicatorOn_{false};
 };
 }

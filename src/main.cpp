@@ -187,6 +187,8 @@ void publishAck(const String& commandId, bool ok, const char* error=nullptr, Log
   publishJson(topic("ack"), d);
 }
 
+bool systemTimeValid();
+
 String isoNow() {
   if (!systemTimeValid()) return "";
   time_t now=time(nullptr); struct tm utc{}; char out[25]{};
@@ -535,16 +537,18 @@ void setup() {
   hardwareReady = hardware.begin();
   home.begin();
   if (hardwareReady) {
-    const bool restoreLastState=deviceConfig.restoreLastStateEnabled(DOMO_RESTORE_LAST_STATE != 0);
+    String recoveryPolicy=deviceConfig.recoveryPolicy();
+    if (DOMO_RESTORE_LAST_STATE != 0 && recoveryPolicy=="force_off") recoveryPolicy="restore_last_state";
     const auto recovered=deviceConfig.confirmedState();
-    if (restoreLastState && recovered != LogicalState::Unknown && hardware.setState(recovered)) {
+    LogicalState recoveryTarget=LogicalState::Off;
+    bool applyRecovery=true;
+    if(recoveryPolicy=="restore_last_state") {
+      if(recovered==LogicalState::Unknown) applyRecovery=false; else recoveryTarget=recovered;
+    } else if(recoveryPolicy=="safe_value") recoveryTarget=deviceConfig.recoverySafeValue();
+    if(applyRecovery && hardware.setState(recoveryTarget)) {
       recoveredPhysicalState=true;
-      Serial.printf("[RECOVERY] restored confirmed state=%s policy=restore_last_state\n", stateName(recovered));
-    } else {
-      Serial.printf("[RECOVERY] policy=%s stored_state=%s\n",
-                    restoreLastState ? "restore_last_state" : "force_off",
-                    stateName(recovered) ? stateName(recovered) : "unknown");
-    }
+      Serial.printf("[RECOVERY] applied policy=%s state=%s\n",recoveryPolicy.c_str(),stateName(recoveryTarget));
+    } else Serial.printf("[RECOVERY] policy=%s no restorable value; fail-safe hardware default retained\n",recoveryPolicy.c_str());
   }
   commandCacheReady = recentCommands.begin();
   Serial.printf("[BOOT] hardware=%s command_cache=%s\n",

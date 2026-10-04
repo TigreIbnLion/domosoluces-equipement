@@ -56,6 +56,7 @@
 #endif
 namespace domo {
 struct HomeInputs { bool motion{false}; bool button1{false}; bool button2{false}; int gas{0}; int steam{0}; };
+struct HomeSnapshot { HomeInputs inputs; bool fanOn{false}; bool buzzerOn{false}; bool doorOpen{false}; bool windowOpen{false}; bool indicatorOn{false}; };
 struct HomeEvents { bool motionStarted{false}; bool button1Pressed{false}; bool button2Pressed{false}; bool gasAlarm{false}; bool rainAlarm{false}; };
 class KeyestudioHome {
  public:
@@ -86,6 +87,7 @@ class KeyestudioHome {
   bool doorOpen() const { return doorOpen_; } bool windowOpen() const { return windowOpen_; }
   void indicator(bool on){ ledcWrite(5,on?32:0); indicatorOn_=on; }
   bool indicatorOn() const { return indicatorOn_; }
+  HomeSnapshot snapshot() const { HomeSnapshot s; s.inputs=inputs(); s.fanOn=fanOn_; s.buzzerOn=buzzerOn_; s.doorOpen=doorOpen_; s.windowOpen=windowOpen_; s.indicatorOn=indicatorOn_; return s; }
   void setThresholds(int gas,int steam){ gasThreshold_=constrain(gas,0,4095); steamThreshold_=constrain(steam,0,4095); }
   bool shouldAlarm(const HomeEvents& e) const { return (DOMO_LOCAL_GAS_ALARM && e.gasAlarm) || (DOMO_LOCAL_RAIN_ALARM && e.rainAlarm); }
  private:

@@ -61,11 +61,14 @@ bool firstMqttSession = true;
 bool hardwareReady = false;
 bool commandCacheReady = false;
 unsigned long lastWifiBegin = 0;
+bool wifiAttemptInProgress = false;
+wl_status_t lastWifiStatus = WL_NO_SHIELD;
 unsigned long mqttDisconnectedSince = 0;
 constexpr unsigned long HEARTBEAT_MS = 30000;
 constexpr unsigned long TELEMETRY_MS = 60000;
 constexpr unsigned long RECONNECT_MS = 3000;
-constexpr unsigned long WIFI_RETRY_MS = 15000;
+constexpr unsigned long WIFI_RETRY_MS = 30000;
+constexpr unsigned long WIFI_CONNECT_TIMEOUT_MS = 20000;
 constexpr unsigned long MQTT_STUCK_MS = 60000;
 constexpr unsigned long TIME_SYNC_RETRY_MS = 15000;
 constexpr time_t MIN_VALID_UNIX_TIME = 1704067200; // 2024-01-01 UTC
@@ -227,15 +230,42 @@ void publishTelemetry() {
   publishJson(topic("telemetry"), d);
 }
 
+const char* wifiStatusName(wl_status_t status) {
+  switch (status) {
+    case WL_IDLE_STATUS: return "idle";
+    case WL_NO_SSID_AVAIL: return "ssid_unavailable";
+    case WL_SCAN_COMPLETED: return "scan_completed";
+    case WL_CONNECTED: return "connected";
+    case WL_CONNECT_FAILED: return "connect_failed";
+    case WL_CONNECTION_LOST: return "connection_lost";
+    case WL_DISCONNECTED: return "disconnected";
+    default: return "unknown";
+  }
+}
+
 void connectWifi() {
-  if (WiFi.status() == WL_CONNECTED || strlen(DOMO_WIFI_SSID) == 0) return;
+  const wl_status_t status = WiFi.status();
+  if (status == WL_CONNECTED || strlen(DOMO_WIFI_SSID) == 0) return;
+
   const unsigned long now = millis();
+  if (wifiAttemptInProgress) {
+    if (now - lastWifiBegin < WIFI_CONNECT_TIMEOUT_MS) return;
+    Serial.printf("[WIFI] attempt timeout status=%s; resetting station before retry\n",
+                  wifiStatusName(status));
+    WiFi.disconnect(false, false);
+    wifiAttemptInProgress = false;
+  }
+
   if (lastWifiBegin != 0 && now - lastWifiBegin < WIFI_RETRY_MS) return;
+
   WiFi.mode(WIFI_STA);
   WiFi.setAutoReconnect(true);
   WiFi.persistent(false);
-  WiFi.begin(DOMO_WIFI_SSID, DOMO_WIFI_PASSWORD);
+  Serial.printf("[WIFI] connecting ssid=%s\n", DOMO_WIFI_SSID);
+  const wl_status_t beginStatus = WiFi.begin(DOMO_WIFI_SSID, DOMO_WIFI_PASSWORD);
   lastWifiBegin = now == 0 ? 1 : now;
+  wifiAttemptInProgress = true;
+  Serial.printf("[WIFI] begin status=%s\n", wifiStatusName(beginStatus));
 }
 
 bool systemTimeValid() {
@@ -396,22 +426,43 @@ void startMqtt() {
 
 void setup() {
   Serial.begin(115200);
+  delay(250);
+  Serial.printf("\n[BOOT] DOMOSOLUCES firmware=%s reset_reason=%d\n",
+                DOMO_FIRMWARE_VERSION, static_cast<int>(esp_reset_reason()));
+  Serial.printf("[BOOT] identity kit=%s device=%s\n", DOMO_KIT_SERIAL, DOMO_DEVICE_UID);
+  Serial.printf("[BOOT] config wifi=%s mqtt_host=%s mqtt_port=%d tls=%s\n",
+                strlen(DOMO_WIFI_SSID) ? "configured" : "missing",
+                strlen(DOMO_MQTT_HOST) ? DOMO_MQTT_HOST : "missing",
+                DOMO_MQTT_PORT, DOMO_MQTT_TLS ? "on" : "off");
   rootTopic = String("domosoluces/kits/") + DOMO_KIT_SERIAL + "/devices/" + DOMO_DEVICE_UID;
   mqttClientId = String("domosoluces-") + DOMO_KIT_SERIAL + "-" + DOMO_DEVICE_UID;
   hardwareReady = hardware.begin();
   commandCacheReady = recentCommands.begin();
+  Serial.printf("[BOOT] hardware=%s command_cache=%s\n",
+                hardwareReady ? "ready" : "not_ready",
+                commandCacheReady ? "ready" : "not_ready");
   connectWifi();
 }
 
 void loop() {
   hardware.loop();
-  if (WiFi.status() != WL_CONNECTED) {
+  const wl_status_t wifiStatus = WiFi.status();
+  if (wifiStatus != lastWifiStatus) {
+    Serial.printf("[WIFI] status=%s (%d)\n", wifiStatusName(wifiStatus), static_cast<int>(wifiStatus));
+    lastWifiStatus = wifiStatus;
+  }
+  if (wifiStatus != WL_CONNECTED) {
     mqttConnected = false;
     if (millis() >= reconnectAt) {
       reconnectAt = millis() + RECONNECT_MS;
       connectWifi();
     }
     delay(10); return;
+  }
+  if (wifiAttemptInProgress) {
+    wifiAttemptInProgress = false;
+    Serial.printf("[WIFI] connected ip=%s rssi=%d\n",
+                  WiFi.localIP().toString().c_str(), WiFi.RSSI());
   }
   if (DOMO_MQTT_TLS && !systemTimeValid()) {
     ensureTlsClockReady();

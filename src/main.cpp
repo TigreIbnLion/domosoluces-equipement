@@ -80,7 +80,6 @@ unsigned long lastHomeDiagnostic = 0;
 constexpr unsigned long HOME_DIAGNOSTIC_MS = 10000;
 unsigned long reconnectAt = 0;
 bool firstMqttSession = true;
-bool recoveredPhysicalState = false;
 bool recoveryApplied = false;
 bool hardwareReady = false;
 bool commandCacheReady = false;
@@ -553,7 +552,7 @@ void setup() {
       if(recovered==LogicalState::Unknown) applyRecovery=false; else recoveryTarget=recovered;
     } else if(recoveryPolicy=="safe_value") recoveryTarget=deviceConfig.recoverySafeValue();
     if(applyRecovery && hardware.setState(recoveryTarget)) {
-      recoveredPhysicalState=true; recoveryApplied=true;
+      recoveryApplied=true;
       Serial.printf("[RECOVERY] applied policy=%s state=%s\n",recoveryPolicy.c_str(),stateName(recoveryTarget));
     } else Serial.printf("[RECOVERY] policy=%s no restorable value; fail-safe hardware default retained\n",recoveryPolicy.c_str());
   }

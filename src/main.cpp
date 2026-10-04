@@ -580,7 +580,7 @@ void loop() {
   if (millis()-lastHomeDiagnostic >= HOME_DIAGNOSTIC_MS) {
     lastHomeDiagnostic=millis(); const auto s=home.snapshot();
     Serial.printf("[HOME] motion=%d gas=%d steam=%d climate=%s temp=%.1fC humidity=%.1f%% fan=%d buzzer=%d door=%d window=%d indicator=%d\n",
-      s.inputs.motion,s.inputs.gas,s.inputs.steam,s.hasClimate?"valid":"unavailable",s.temperatureC,s.humidityPct,s.fanOn,s.buzzerOn,s.doorOpen,s.windowOpen,s.indicatorOn);
+      s.inputs.motion,s.inputs.gasDetected,s.inputs.steam,s.hasClimate?"valid":"unavailable",s.temperatureC,s.humidityPct,s.fanOn,s.buzzerOn,s.doorOpen,s.windowOpen,s.indicatorOn);
   }
   provisioning.loop();
   if (provisioning.active()) { delay(5); return; }

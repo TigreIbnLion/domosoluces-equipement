@@ -22,6 +22,8 @@ class DeviceConfig {
     if (state == LogicalState::Unknown) return false;
     return prefs_.putUChar("last_state", state == LogicalState::On ? 1 : 0) == 1;
   }
+  bool saveRecoveryPolicy(bool restoreLastState) { return prefs_.putBool("restore_state", restoreLastState) == 1; }
+  bool restoreLastStateEnabled(bool fallback=false) { return prefs_.getBool("restore_state", fallback); }
   LogicalState confirmedState() {
     if (!prefs_.isKey("last_state")) return LogicalState::Unknown;
     return prefs_.getUChar("last_state", 2) == 1 ? LogicalState::On : LogicalState::Off;

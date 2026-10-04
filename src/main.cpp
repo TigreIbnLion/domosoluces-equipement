@@ -1,5 +1,6 @@
 #include <Arduino.h>
 #include <WiFi.h>
+#include <time.h>
 #include <mqtt_client.h>
 #include <ArduinoJson.h>
 #include "KeyestudioAdapter.h"
@@ -11,6 +12,9 @@
 #endif
 #ifndef DOMO_WIFI_PASSWORD
 #define DOMO_WIFI_PASSWORD ""
+#endif
+#ifndef DOMO_NTP_SERVER
+#define DOMO_NTP_SERVER "pool.ntp.org"
 #endif
 #ifndef DOMO_MQTT_HOST
 #define DOMO_MQTT_HOST ""
@@ -63,6 +67,10 @@ constexpr unsigned long TELEMETRY_MS = 60000;
 constexpr unsigned long RECONNECT_MS = 3000;
 constexpr unsigned long WIFI_RETRY_MS = 15000;
 constexpr unsigned long MQTT_STUCK_MS = 60000;
+constexpr unsigned long TIME_SYNC_RETRY_MS = 15000;
+constexpr time_t MIN_VALID_UNIX_TIME = 1704067200; // 2024-01-01 UTC
+unsigned long lastTimeSyncBegin = 0;
+bool timeSyncRequested = false;
 constexpr size_t MQTT_COMMAND_MAX_BYTES = 512;
 char mqttCommandBuffer[MQTT_COMMAND_MAX_BYTES];
 int mqttCommandExpectedBytes = 0;
@@ -229,6 +237,24 @@ void connectWifi() {
   lastWifiBegin = now == 0 ? 1 : now;
 }
 
+bool systemTimeValid() {
+  return time(nullptr) >= MIN_VALID_UNIX_TIME;
+}
+
+bool ensureTlsClockReady() {
+  if (!DOMO_MQTT_TLS) return true;
+  if (systemTimeValid()) return true;
+
+  const unsigned long now = millis();
+  if (!timeSyncRequested || now - lastTimeSyncBegin >= TIME_SYNC_RETRY_MS) {
+    configTime(0, 0, DOMO_NTP_SERVER);
+    timeSyncRequested = true;
+    lastTimeSyncBegin = now == 0 ? 1 : now;
+    Serial.println("[TIME] NTP sync requested; MQTT TLS waits for a valid clock");
+  }
+  return false;
+}
+
 void resetMqttCommandAssembly() {
   mqttCommandExpectedBytes = 0;
   mqttCommandReceivedBytes = 0;
@@ -311,6 +337,9 @@ void onMqttEvent(void*, esp_event_base_t, int32_t eventId, void* eventData) {
 void startMqtt() {
   if (mqtt || WiFi.status() != WL_CONNECTED || strlen(DOMO_MQTT_HOST) == 0) return;
   if (DOMO_MQTT_TLS && strlen(DOMO_MQTT_CA_CERT) == 0) return;
+  // X.509 validity checks require a trustworthy wall clock. Never weaken TLS
+  // verification to work around an unsynchronised RTC after boot.
+  if (!ensureTlsClockReady()) return;
   String uri = String(DOMO_MQTT_TLS ? "mqtts://" : "mqtt://") +
                DOMO_MQTT_HOST + ":" + DOMO_MQTT_PORT;
   esp_mqtt_client_config_t config = {};
@@ -355,6 +384,9 @@ void loop() {
       connectWifi();
     }
     delay(10); return;
+  }
+  if (DOMO_MQTT_TLS && !systemTimeValid()) {
+    ensureTlsClockReady();
   }
   if (!mqtt && millis() >= reconnectAt) {
     reconnectAt = millis() + RECONNECT_MS;

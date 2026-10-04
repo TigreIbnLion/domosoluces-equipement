@@ -39,6 +39,12 @@
 #ifndef DOMO_STEAM_PIN
 #define DOMO_STEAM_PIN 34
 #endif
+#ifndef DOMO_LOCAL_GAS_ALARM
+#define DOMO_LOCAL_GAS_ALARM 1
+#endif
+#ifndef DOMO_LOCAL_RAIN_ALARM
+#define DOMO_LOCAL_RAIN_ALARM 0
+#endif
 namespace domo {
 struct HomeInputs { bool motion{false}; bool button1{false}; bool button2{false}; int gas{0}; int steam{0}; };
 struct HomeEvents { bool motionStarted{false}; bool button1Pressed{false}; bool button2Pressed{false}; bool gasAlarm{false}; bool rainAlarm{false}; };
@@ -65,6 +71,7 @@ class KeyestudioHome {
   void buzzer(bool on) { digitalWrite(DOMO_BUZZER_PIN,on?HIGH:LOW); buzzerOn_=on; }
   bool fanOn() const { return fanOn_; } bool buzzerOn() const { return buzzerOn_; }
   void setThresholds(int gas,int steam){ gasThreshold_=constrain(gas,0,4095); steamThreshold_=constrain(steam,0,4095); }
+  bool shouldAlarm(const HomeEvents& e) const { return (DOMO_LOCAL_GAS_ALARM && e.gasAlarm) || (DOMO_LOCAL_RAIN_ALARM && e.rainAlarm); }
  private:
   HomeInputs last_{}; unsigned long lastPoll_{0}; int gasThreshold_{1800}; int steamThreshold_{1800}; bool fanOn_{false}; bool buzzerOn_{false};
 };
